@@ -293,6 +293,11 @@ step "Build DMG"
 DMGROOT="$TMP/dmgroot"
 mkdir -p "$DMGROOT"
 cp "$SIGNED_PKG" "$DMGROOT/$PKG_NAME"
+if [ "$DO_NOTARIZE" = "1" ]; then
+    PACKAGE_STATUS="Signed and notarized by Music-Prod."
+else
+    PACKAGE_STATUS="Signed by Music-Prod; not notarized (release candidate only)."
+fi
 cat > "$DMGROOT/README.txt" <<EOF
 $PRODUCT $VERSION for macOS
 
@@ -306,7 +311,7 @@ The installer places both plugin formats:
   VST3             ->  /Library/Audio/Plug-Ins/VST3/$PRODUCT.vst3
 
 Universal binary: Apple Silicon (arm64) + Intel (x86_64).
-Signed and notarized by Music-Prod.
+$PACKAGE_STATUS
 EOF
 
 UNSIGNED_DMG="$TMP/$DMG_NAME"
@@ -316,6 +321,17 @@ hdiutil create -volname "$VOL_NAME" \
                -format UDZO \
                -ov \
                "$UNSIGNED_DMG"
+
+step "Sign DMG (Developer ID Application, secure timestamp)"
+codesign --force --timestamp --sign "$APP_ID" "$UNSIGNED_DMG"
+codesign --verify --verbose=2 "$UNSIGNED_DMG" 2>&1 \
+    || die "DMG signature verification failed"
+DMG_SIG_INFO="$(codesign -dv --verbose=4 "$UNSIGNED_DMG" 2>&1 || true)"
+[[ "$DMG_SIG_INFO" == *"Authority=$APP_ID"* ]] \
+    || die "DMG is not signed by the Developer ID Application identity"
+[[ "$DMG_SIG_INFO" == *"TeamIdentifier=3A4R5EKM7V"* ]] \
+    || die "unexpected TeamIdentifier on DMG"
+echo "  DMG Developer ID Application signature verified"
 
 if [ "$DO_NOTARIZE" = "1" ]; then
     step "Notarize DMG"
@@ -329,7 +345,11 @@ if [ "$DO_NOTARIZE" = "1" ]; then
     notary_status "$NOTARY_OUT" "DMG"
     xcrun stapler staple "$UNSIGNED_DMG"
     xcrun stapler validate "$UNSIGNED_DMG" || die "stapler validate failed on the DMG"
-    echo "  DMG notarized and stapled"
+    spctl --assess --type open --context context:primary-signature --verbose=4 "$UNSIGNED_DMG" 2>&1 \
+        | tee "$TMP/spctl-dmg.log" || true
+    grep -q "source=Notarized Developer ID" "$TMP/spctl-dmg.log" \
+        || die "Gatekeeper does not accept the DMG as Notarized Developer ID"
+    echo "  DMG notarized, stapled, and Gatekeeper accepted"
 fi
 
 # ------------------------------------------------------------ publish+verify
@@ -338,6 +358,9 @@ cp "$SIGNED_PKG" "$OUT_DIR/$PKG_NAME"
 cp "$UNSIGNED_DMG" "$OUT_DIR/$DMG_NAME"
 
 step "Verify the published DMG by mounting it read-only"
+if [ "$DO_NOTARIZE" = "1" ]; then
+    xcrun stapler validate "$OUT_DIR/$DMG_NAME" || die "published DMG stapled ticket validation failed"
+fi
 MOUNT_POINT="$(hdiutil attach "$OUT_DIR/$DMG_NAME" -nobrowse -readonly 2>/dev/null \
                 | tail -1 | sed -n 's/.*\(\/Volumes\/.*\)/\1/p' || true)"
 [ -n "$MOUNT_POINT" ] || die "could not determine mount point"
