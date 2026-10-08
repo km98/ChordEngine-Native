@@ -25,10 +25,28 @@ jobs:
       - name: Build all targets including tests
         run: cmake --build Build/Windows --config Release
 
-      - name: Run CTest
-        run: ctest --test-dir Build/Windows -C Release --output-on-failure
+      - name: Run CTest (full output saved to files)
+        # --output-log and --output-junit write the complete results to disk
+        # before ctest exits, so a failure still leaves a diagnosable record.
+        run: >-
+          ctest --test-dir Build/Windows -C Release --output-on-failure
+          --output-log Build/Windows/ctest-output.log
+          --output-junit Build/Windows/ctest-junit.xml
 
-      - name: Archive VST3 bundle
+      - name: Upload CTest diagnostics (always, even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChordEngine-Windows-ctest-diagnostics
+          path: |
+            Build/Windows/ctest-output.log
+            Build/Windows/ctest-junit.xml
+            Build/Windows/Testing/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Archive VST3 bundle (only when all tests pass)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ChordEngine-VST3-windows
