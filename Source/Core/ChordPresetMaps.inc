@@ -1,0 +1,28 @@
+// Copied as typed data from Tests/FLReferenceVectors.json sourceTables; intentionally no script/runtime code.
+constexpr std::array<std::array<std::uint8_t, ChordPresetSystem::triggerCount>, ChordPresetSystem::presetCount> triggerMaps {{
+    {{ 63, 0, 1, 64, 2, 66, 3, 67, 4, 5, 68, 6, 0, 10, 4, 11, 5, 3, 13, 4, 7, 1, 8, 2, 7, 14, 8, 15, 16, 10, 17, 11, 18, 12, 19, 20, 2, 9, 3, 10, 4, 5, 12, 6, 13, 0, 7, 1, 4, 53, 5, 54, 6, 0, 49, 1, 50, 2, 51, 3, 5, 61, 6, 62, 0, 1, 57, 2, 58, 3, 59, 4, 61 }},
+    {{ 63, 0, 1, 64, 2, 10, 3, 67, 4, 12, 5, 6, 42, 10, 25, 11, 12, 6, 13, 14, 7, 1, 8, 2, 0, 14, 8, 15, 16, 45, 17, 25, 18, 47, 19, 20, 2, 9, 10, 17, 25, 12, 19, 6, 13, 0, 7, 1, 25, 53, 12, 54, 6, 0, 49, 1, 50, 2, 51, 10, 12, 61, 6, 62, 0, 1, 57, 2, 58, 10, 59, 25, 7 }},
+    {{ 63, 0, 8, 1, 9, 66, 3, 67, 4, 19, 5, 13, 7, 10, 11, 18, 19, 13, 20, 14, 7, 8, 15, 9, 42, 14, 43, 15, 16, 17, 10, 11, 18, 47, 12, 20, 9, 16, 17, 10, 11, 19, 12, 13, 20, 7, 14, 8, 11, 53, 19, 54, 13, 7, 49, 8, 50, 9, 51, 17, 19, 61, 13, 62, 7, 8, 57, 9, 58, 17, 59, 11, 14 }},
+    {{ 63, 0, 8, 1, 23, 45, 3, 67, 4, 47, 5, 41, 42, 10, 11, 18, 47, 41, 13, 14, 7, 8, 15, 23, 7, 14, 43, 15, 16, 10, 17, 11, 18, 12, 19, 20, 23, 9, 45, 10, 11, 47, 12, 41, 13, 42, 7, 8, 11, 53, 47, 54, 41, 42, 49, 8, 50, 23, 51, 45, 47, 61, 41, 62, 42, 8, 57, 23, 58, 45, 59, 11, 14 }},
+    {{ 63, 0, 64, 1, 9, 10, 3, 67, 4, 47, 5, 13, 42, 10, 11, 18, 47, 13, 20, 14, 7, 8, 15, 9, 14, 7, 8, 15, 16, 45, 17, 11, 18, 12, 19, 20, 9, 16, 10, 17, 11, 47, 12, 13, 20, 14, 7, 8, 11, 53, 47, 54, 13, 14, 49, 8, 50, 9, 51, 10, 47, 61, 13, 62, 14, 8, 57, 9, 58, 10, 59, 11, 61 }},
+    {{ 63, 0, 8, 1, 9, 66, 3, 67, 4, 19, 5, 20, 17, 10, 67, 11, 19, 20, 13, 14, 7, 8, 15, 9, 14, 7, 43, 15, 16, 17, 10, 11, 18, 47, 12, 13, 9, 16, 17, 10, 67, 19, 12, 20, 13, 14, 7, 8, 67, 53, 19, 54, 20, 14, 49, 8, 50, 9, 51, 17, 19, 61, 20, 62, 14, 8, 57, 9, 58, 17, 59, 67, 61 }},
+    {{ 63, 0, 8, 1, 9, 17, 3, 67, 4, 12, 5, 62, 42, 10, 32, 11, 12, 62, 13, 14, 7, 8, 15, 9, 14, 7, 43, 15, 16, 45, 10, 32, 18, 47, 19, 20, 9, 16, 17, 10, 32, 12, 19, 62, 13, 14, 7, 8, 32, 53, 12, 54, 62, 14, 49, 8, 50, 9, 51, 17, 12, 61, 62, 55, 14, 8, 57, 9, 58, 17, 59, 32, 61 }},
+    {{ 63, 0, 43, 1, 44, 66, 3, 46, 4, 47, 5, 48, 49, 10, 46, 11, 47, 48, 13, 67, 7, 43, 8, 44, 7, 14, 8, 15, 16, 52, 17, 11, 18, 12, 19, 20, 44, 9, 52, 10, 46, 47, 12, 48, 13, 49, 7, 43, 46, 53, 47, 54, 48, 49, 56, 43, 50, 44, 51, 52, 47, 61, 48, 62, 49, 43, 57, 44, 58, 52, 59, 46, 61 }},
+    {{ 63, 0, 15, 1, 9, 17, 3, 67, 4, 12, 5, 20, 14, 10, 11, 18, 12, 20, 13, 14, 7, 15, 8, 9, 42, 7, 43, 8, 16, 45, 10, 11, 18, 47, 19, 13, 9, 16, 17, 10, 11, 12, 19, 20, 13, 14, 7, 15, 11, 53, 12, 54, 20, 14, 49, 15, 50, 9, 51, 17, 12, 61, 20, 62, 14, 15, 57, 9, 58, 17, 59, 11, 61 }},
+    {{ 63, 0, 8, 1, 9, 24, 3, 67, 4, 47, 5, 13, 7, 10, 32, 11, 47, 13, 20, 14, 7, 8, 15, 9, 42, 14, 43, 15, 16, 10, 17, 32, 18, 12, 19, 20, 9, 16, 24, 10, 32, 47, 12, 13, 20, 7, 14, 8, 32, 53, 47, 54, 13, 7, 49, 8, 50, 9, 51, 24, 47, 61, 13, 62, 7, 8, 57, 9, 58, 24, 59, 32, 61 }},
+    {{ 63, 0, 8, 1, 9, 66, 3, 11, 4, 12, 5, 20, 49, 10, 11, 18, 12, 20, 13, 67, 7, 8, 15, 9, 7, 14, 43, 15, 16, 52, 17, 46, 18, 47, 19, 13, 9, 16, 52, 10, 11, 12, 19, 20, 13, 49, 7, 8, 11, 53, 12, 54, 20, 49, 56, 8, 50, 9, 51, 52, 12, 61, 20, 62, 49, 8, 57, 9, 58, 52, 59, 11, 61 }},
+    {{ 63, 0, 64, 1, 9, 66, 3, 67, 4, 12, 5, 69, 42, 10, 67, 11, 12, 69, 13, 14, 7, 64, 8, 9, 7, 14, 8, 15, 16, 10, 17, 11, 18, 47, 19, 20, 9, 16, 66, 10, 67, 12, 19, 69, 13, 63, 7, 64, 67, 53, 12, 54, 69, 63, 49, 64, 50, 9, 51, 66, 12, 61, 69, 62, 63, 64, 57, 9, 58, 66, 59, 67, 61 }},
+}};
+
+constexpr std::array<ChordTemplateDefinition, ChordPresetSystem::templateCount> templates {{
+    ChordTemplateDefinition{ "TRI", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 0 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{}, ChordToneTemplate{}, ChordToneTemplate{} }}, 3 },
+    ChordTemplateDefinition{ "TRI7", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 0 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{ 3, 0 }, ChordToneTemplate{}, ChordToneTemplate{} }}, 4 },
+    ChordTemplateDefinition{ "TRI79", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 0 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{ 3, 0 }, ChordToneTemplate{ 4, 0 }, ChordToneTemplate{} }}, 5 },
+    ChordTemplateDefinition{ "SUS4", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 5 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{}, ChordToneTemplate{}, ChordToneTemplate{} }}, 3 },
+    ChordTemplateDefinition{ "SUS47", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 5 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{ 3, 0 }, ChordToneTemplate{}, ChordToneTemplate{} }}, 4 },
+    ChordTemplateDefinition{ "SUS2C", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 2 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{}, ChordToneTemplate{}, ChordToneTemplate{} }}, 3 },
+    ChordTemplateDefinition{ "STACK9", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 0 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{ 3, 0 }, ChordToneTemplate{ 4, 0 }, ChordToneTemplate{} }}, 5 },
+    ChordTemplateDefinition{ "STACK11", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 0 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{ 3, 0 }, ChordToneTemplate{ 5, 0 }, ChordToneTemplate{} }}, 5 },
+    ChordTemplateDefinition{ "STACK13", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 1, 0 }, ChordToneTemplate{ 2, 0 }, ChordToneTemplate{ 3, 0 }, ChordToneTemplate{ 6, 0 }, ChordToneTemplate{} }}, 5 },
+    ChordTemplateDefinition{ "OPEN5", {{ ChordToneTemplate{ 0, 0 }, ChordToneTemplate{ 2, 7 }, ChordToneTemplate{ 4, 0 }, ChordToneTemplate{ 0, 12 }, ChordToneTemplate{}, ChordToneTemplate{} }}, 4 },
+}};

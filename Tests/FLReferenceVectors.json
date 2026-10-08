@@ -1,0 +1,2617 @@
+{
+  "formatVersion": 1,
+  "evidenceClass": "VERIFIED-SOURCE-STATIC; generated vectors are independent calculations from the script embedded in the approved VST3, not host-observed MIDI captures",
+  "reference": {
+    "product": "ChordEngine FL 0.4.0",
+    "approvedVst3ExecutableSha256": "3ffbe1f349846df64dc7e2cf3357b1e682e4f8f1dd3cf8a879080edc773483ed",
+    "approvedVst3EmbeddedPresetPayloadOffset": 16929040,
+    "embeddedPresetPayloadSha256": "da7927b596211213efb8b1dcfa88c811ef3aa328eb83597b4e44113297ba63fa",
+    "embeddedMainScriptSha256": "5ba711582e87c75b4c38322152055b12bc6ef6c92dc9ba6444d1cbda34b660da",
+    "currentlyEditableMainScriptSha256": "bd84bf44c64828ad5dbd649f713f46665d018068078d284f9b9ec430844a4ce6",
+    "activeProjectSourceMismatch": true,
+    "lineNumbersReferTo": "embeddedMainScript extracted from PresetData.cpp temp19; not the stale editable ScriptProcessor1.js"
+  },
+  "sourceTables": {
+    "triggerLow": 24,
+    "triggerHigh": 96,
+    "scaleNames": [
+      "Major",
+      "Minor",
+      "Dorian",
+      "Phrygian",
+      "Lydian",
+      "Mixolydian",
+      "Locrian",
+      "Harmonic Minor"
+    ],
+    "scaleDegrees": [
+      [
+        0,
+        2,
+        4,
+        5,
+        7,
+        9,
+        11
+      ],
+      [
+        0,
+        2,
+        3,
+        5,
+        7,
+        8,
+        10
+      ],
+      [
+        0,
+        2,
+        3,
+        5,
+        7,
+        9,
+        10
+      ],
+      [
+        0,
+        1,
+        3,
+        5,
+        7,
+        8,
+        10
+      ],
+      [
+        0,
+        2,
+        4,
+        6,
+        7,
+        9,
+        11
+      ],
+      [
+        0,
+        2,
+        4,
+        5,
+        7,
+        9,
+        10
+      ],
+      [
+        0,
+        1,
+        3,
+        5,
+        6,
+        8,
+        10
+      ],
+      [
+        0,
+        2,
+        3,
+        5,
+        7,
+        8,
+        11
+      ]
+    ],
+    "presetNames": [
+      "Basic",
+      "Pop",
+      "Piano",
+      "Emotional",
+      "Dreamy",
+      "Cinematic",
+      "R&B",
+      "Neo Soul",
+      "Lo-Fi",
+      "House",
+      "Deep",
+      "Ambient"
+    ],
+    "presetVoicings": [
+      "close",
+      "close",
+      "close",
+      "close",
+      "close",
+      "spread",
+      "close",
+      "close",
+      "close",
+      "close",
+      "close",
+      "open"
+    ],
+    "triggerMapByPreset": [
+      [
+        63,
+        0,
+        1,
+        64,
+        2,
+        66,
+        3,
+        67,
+        4,
+        5,
+        68,
+        6,
+        0,
+        10,
+        4,
+        11,
+        5,
+        3,
+        13,
+        4,
+        7,
+        1,
+        8,
+        2,
+        7,
+        14,
+        8,
+        15,
+        16,
+        10,
+        17,
+        11,
+        18,
+        12,
+        19,
+        20,
+        2,
+        9,
+        3,
+        10,
+        4,
+        5,
+        12,
+        6,
+        13,
+        0,
+        7,
+        1,
+        4,
+        53,
+        5,
+        54,
+        6,
+        0,
+        49,
+        1,
+        50,
+        2,
+        51,
+        3,
+        5,
+        61,
+        6,
+        62,
+        0,
+        1,
+        57,
+        2,
+        58,
+        3,
+        59,
+        4,
+        61
+      ],
+      [
+        63,
+        0,
+        1,
+        64,
+        2,
+        10,
+        3,
+        67,
+        4,
+        12,
+        5,
+        6,
+        42,
+        10,
+        25,
+        11,
+        12,
+        6,
+        13,
+        14,
+        7,
+        1,
+        8,
+        2,
+        0,
+        14,
+        8,
+        15,
+        16,
+        45,
+        17,
+        25,
+        18,
+        47,
+        19,
+        20,
+        2,
+        9,
+        10,
+        17,
+        25,
+        12,
+        19,
+        6,
+        13,
+        0,
+        7,
+        1,
+        25,
+        53,
+        12,
+        54,
+        6,
+        0,
+        49,
+        1,
+        50,
+        2,
+        51,
+        10,
+        12,
+        61,
+        6,
+        62,
+        0,
+        1,
+        57,
+        2,
+        58,
+        10,
+        59,
+        25,
+        7
+      ],
+      [
+        63,
+        0,
+        8,
+        1,
+        9,
+        66,
+        3,
+        67,
+        4,
+        19,
+        5,
+        13,
+        7,
+        10,
+        11,
+        18,
+        19,
+        13,
+        20,
+        14,
+        7,
+        8,
+        15,
+        9,
+        42,
+        14,
+        43,
+        15,
+        16,
+        17,
+        10,
+        11,
+        18,
+        47,
+        12,
+        20,
+        9,
+        16,
+        17,
+        10,
+        11,
+        19,
+        12,
+        13,
+        20,
+        7,
+        14,
+        8,
+        11,
+        53,
+        19,
+        54,
+        13,
+        7,
+        49,
+        8,
+        50,
+        9,
+        51,
+        17,
+        19,
+        61,
+        13,
+        62,
+        7,
+        8,
+        57,
+        9,
+        58,
+        17,
+        59,
+        11,
+        14
+      ],
+      [
+        63,
+        0,
+        8,
+        1,
+        23,
+        45,
+        3,
+        67,
+        4,
+        47,
+        5,
+        41,
+        42,
+        10,
+        11,
+        18,
+        47,
+        41,
+        13,
+        14,
+        7,
+        8,
+        15,
+        23,
+        7,
+        14,
+        43,
+        15,
+        16,
+        10,
+        17,
+        11,
+        18,
+        12,
+        19,
+        20,
+        23,
+        9,
+        45,
+        10,
+        11,
+        47,
+        12,
+        41,
+        13,
+        42,
+        7,
+        8,
+        11,
+        53,
+        47,
+        54,
+        41,
+        42,
+        49,
+        8,
+        50,
+        23,
+        51,
+        45,
+        47,
+        61,
+        41,
+        62,
+        42,
+        8,
+        57,
+        23,
+        58,
+        45,
+        59,
+        11,
+        14
+      ],
+      [
+        63,
+        0,
+        64,
+        1,
+        9,
+        10,
+        3,
+        67,
+        4,
+        47,
+        5,
+        13,
+        42,
+        10,
+        11,
+        18,
+        47,
+        13,
+        20,
+        14,
+        7,
+        8,
+        15,
+        9,
+        14,
+        7,
+        8,
+        15,
+        16,
+        45,
+        17,
+        11,
+        18,
+        12,
+        19,
+        20,
+        9,
+        16,
+        10,
+        17,
+        11,
+        47,
+        12,
+        13,
+        20,
+        14,
+        7,
+        8,
+        11,
+        53,
+        47,
+        54,
+        13,
+        14,
+        49,
+        8,
+        50,
+        9,
+        51,
+        10,
+        47,
+        61,
+        13,
+        62,
+        14,
+        8,
+        57,
+        9,
+        58,
+        10,
+        59,
+        11,
+        61
+      ],
+      [
+        63,
+        0,
+        8,
+        1,
+        9,
+        66,
+        3,
+        67,
+        4,
+        19,
+        5,
+        20,
+        17,
+        10,
+        67,
+        11,
+        19,
+        20,
+        13,
+        14,
+        7,
+        8,
+        15,
+        9,
+        14,
+        7,
+        43,
+        15,
+        16,
+        17,
+        10,
+        11,
+        18,
+        47,
+        12,
+        13,
+        9,
+        16,
+        17,
+        10,
+        67,
+        19,
+        12,
+        20,
+        13,
+        14,
+        7,
+        8,
+        67,
+        53,
+        19,
+        54,
+        20,
+        14,
+        49,
+        8,
+        50,
+        9,
+        51,
+        17,
+        19,
+        61,
+        20,
+        62,
+        14,
+        8,
+        57,
+        9,
+        58,
+        17,
+        59,
+        67,
+        61
+      ],
+      [
+        63,
+        0,
+        8,
+        1,
+        9,
+        17,
+        3,
+        67,
+        4,
+        12,
+        5,
+        62,
+        42,
+        10,
+        32,
+        11,
+        12,
+        62,
+        13,
+        14,
+        7,
+        8,
+        15,
+        9,
+        14,
+        7,
+        43,
+        15,
+        16,
+        45,
+        10,
+        32,
+        18,
+        47,
+        19,
+        20,
+        9,
+        16,
+        17,
+        10,
+        32,
+        12,
+        19,
+        62,
+        13,
+        14,
+        7,
+        8,
+        32,
+        53,
+        12,
+        54,
+        62,
+        14,
+        49,
+        8,
+        50,
+        9,
+        51,
+        17,
+        12,
+        61,
+        62,
+        55,
+        14,
+        8,
+        57,
+        9,
+        58,
+        17,
+        59,
+        32,
+        61
+      ],
+      [
+        63,
+        0,
+        43,
+        1,
+        44,
+        66,
+        3,
+        46,
+        4,
+        47,
+        5,
+        48,
+        49,
+        10,
+        46,
+        11,
+        47,
+        48,
+        13,
+        67,
+        7,
+        43,
+        8,
+        44,
+        7,
+        14,
+        8,
+        15,
+        16,
+        52,
+        17,
+        11,
+        18,
+        12,
+        19,
+        20,
+        44,
+        9,
+        52,
+        10,
+        46,
+        47,
+        12,
+        48,
+        13,
+        49,
+        7,
+        43,
+        46,
+        53,
+        47,
+        54,
+        48,
+        49,
+        56,
+        43,
+        50,
+        44,
+        51,
+        52,
+        47,
+        61,
+        48,
+        62,
+        49,
+        43,
+        57,
+        44,
+        58,
+        52,
+        59,
+        46,
+        61
+      ],
+      [
+        63,
+        0,
+        15,
+        1,
+        9,
+        17,
+        3,
+        67,
+        4,
+        12,
+        5,
+        20,
+        14,
+        10,
+        11,
+        18,
+        12,
+        20,
+        13,
+        14,
+        7,
+        15,
+        8,
+        9,
+        42,
+        7,
+        43,
+        8,
+        16,
+        45,
+        10,
+        11,
+        18,
+        47,
+        19,
+        13,
+        9,
+        16,
+        17,
+        10,
+        11,
+        12,
+        19,
+        20,
+        13,
+        14,
+        7,
+        15,
+        11,
+        53,
+        12,
+        54,
+        20,
+        14,
+        49,
+        15,
+        50,
+        9,
+        51,
+        17,
+        12,
+        61,
+        20,
+        62,
+        14,
+        15,
+        57,
+        9,
+        58,
+        17,
+        59,
+        11,
+        61
+      ],
+      [
+        63,
+        0,
+        8,
+        1,
+        9,
+        24,
+        3,
+        67,
+        4,
+        47,
+        5,
+        13,
+        7,
+        10,
+        32,
+        11,
+        47,
+        13,
+        20,
+        14,
+        7,
+        8,
+        15,
+        9,
+        42,
+        14,
+        43,
+        15,
+        16,
+        10,
+        17,
+        32,
+        18,
+        12,
+        19,
+        20,
+        9,
+        16,
+        24,
+        10,
+        32,
+        47,
+        12,
+        13,
+        20,
+        7,
+        14,
+        8,
+        32,
+        53,
+        47,
+        54,
+        13,
+        7,
+        49,
+        8,
+        50,
+        9,
+        51,
+        24,
+        47,
+        61,
+        13,
+        62,
+        7,
+        8,
+        57,
+        9,
+        58,
+        24,
+        59,
+        32,
+        61
+      ],
+      [
+        63,
+        0,
+        8,
+        1,
+        9,
+        66,
+        3,
+        11,
+        4,
+        12,
+        5,
+        20,
+        49,
+        10,
+        11,
+        18,
+        12,
+        20,
+        13,
+        67,
+        7,
+        8,
+        15,
+        9,
+        7,
+        14,
+        43,
+        15,
+        16,
+        52,
+        17,
+        46,
+        18,
+        47,
+        19,
+        13,
+        9,
+        16,
+        52,
+        10,
+        11,
+        12,
+        19,
+        20,
+        13,
+        49,
+        7,
+        8,
+        11,
+        53,
+        12,
+        54,
+        20,
+        49,
+        56,
+        8,
+        50,
+        9,
+        51,
+        52,
+        12,
+        61,
+        20,
+        62,
+        49,
+        8,
+        57,
+        9,
+        58,
+        52,
+        59,
+        11,
+        61
+      ],
+      [
+        63,
+        0,
+        64,
+        1,
+        9,
+        66,
+        3,
+        67,
+        4,
+        12,
+        5,
+        69,
+        42,
+        10,
+        67,
+        11,
+        12,
+        69,
+        13,
+        14,
+        7,
+        64,
+        8,
+        9,
+        7,
+        14,
+        8,
+        15,
+        16,
+        10,
+        17,
+        11,
+        18,
+        47,
+        19,
+        20,
+        9,
+        16,
+        66,
+        10,
+        67,
+        12,
+        19,
+        69,
+        13,
+        63,
+        7,
+        64,
+        67,
+        53,
+        12,
+        54,
+        69,
+        63,
+        49,
+        64,
+        50,
+        9,
+        51,
+        66,
+        12,
+        61,
+        69,
+        62,
+        63,
+        64,
+        57,
+        9,
+        58,
+        66,
+        59,
+        67,
+        61
+      ]
+    ],
+    "templatePairsByTemplate": [
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          5,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          6,
+          0
+        ]
+      ],
+      [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          7
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          0,
+          12
+        ]
+      ]
+    ],
+    "templateNames": [
+      "TRI",
+      "TRI7",
+      "TRI79",
+      "SUS4",
+      "SUS47",
+      "SUS2C",
+      "STACK9",
+      "STACK11",
+      "STACK13",
+      "OPEN5"
+    ]
+  },
+  "defaultStateSource": {
+    "keyIndex": 0,
+    "scaleIndex": 1,
+    "presetIndex": 4,
+    "transposeTarget": "WHOLE",
+    "octaveStepsByTargetAndPreset": 0,
+    "velocityMode": "dynamic",
+    "fixedVelocity": 100,
+    "presetSelectionText": "Dreamy",
+    "scaleSelectionText": "Minor",
+    "keySelectionText": "C"
+  },
+  "cases": [
+    {
+      "id": "scale_major",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 0,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          52,
+          55,
+          59,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          52,
+          55,
+          59,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_minor",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_dorian",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 2,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_phrygian",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 3,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          61
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          61
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_lydian",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 4,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          52,
+          55,
+          59,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          52,
+          55,
+          59,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_mixolydian",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 5,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          52,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          52,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_locrian",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 6,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          54,
+          58,
+          61
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          54,
+          58,
+          61
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "scale_harmonic_minor",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 7,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          59,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          59,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_basic",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 0
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_pop",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 1
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_piano",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 2
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_emotional",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 3
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          56,
+          58
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          56,
+          58
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_dreamy",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_cinematic",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 5
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          67,
+          74,
+          82
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          67,
+          74,
+          82
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_r_b",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 6
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_neo_soul",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 7
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62,
+          65
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62,
+          65
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_lo_fi",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 8
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_house",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 9
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_deep",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 10
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "preset_ambient",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 11
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          58,
+          67,
+          74
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          58,
+          67,
+          74
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "trigger_boundary_24",
+      "input": {
+        "note": 24,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          48,
+          55,
+          60,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          48,
+          55,
+          60,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "trigger_boundary_96",
+      "input": {
+        "note": 96,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          56,
+          60,
+          63,
+          67,
+          77
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          56,
+          60,
+          63,
+          67,
+          77
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "trigger_outside_range_23",
+      "input": {
+        "note": 23,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [],
+        "velocity": null,
+        "noteOffs": [],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "trigger_outside_range_97",
+      "input": {
+        "note": 97,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [],
+        "velocity": null,
+        "noteOffs": [],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "whole_octaves_-2",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": -2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          27,
+          31,
+          34,
+          38
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          27,
+          31,
+          34,
+          38
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "whole_octaves_+2",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          75,
+          79,
+          82,
+          86
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          75,
+          79,
+          82,
+          86
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "lowest_octaves_-2",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "LOWEST",
+        "octaveSteps": -2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          27,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          27,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "lowest_octaves_+2",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "LOWEST",
+        "octaveSteps": 2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          75,
+          55,
+          58,
+          62
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          75,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "highest_octaves_-2",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "HIGHEST",
+        "octaveSteps": -2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          38
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          38
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "highest_octaves_+2",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "HIGHEST",
+        "octaveSteps": 2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          86
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          86
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "highest_pitch_individual_clamp_127",
+      "input": {
+        "note": 75,
+        "channel": 1,
+        "velocity": 96,
+        "keyIndex": 5,
+        "scaleIndex": 0,
+        "presetIndex": 5
+      },
+      "transpose": {
+        "target": "HIGHEST",
+        "octaveSteps": 2
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          62,
+          77,
+          84,
+          93,
+          127
+        ],
+        "velocity": 96,
+        "noteOffs": [
+          62,
+          77,
+          84,
+          93,
+          127
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "dynamic_velocity_1",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 1,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 1,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "dynamic_velocity_64",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 64,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 64,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "dynamic_velocity_127",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 127,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "dynamic",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 127,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "maximum_velocity",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 1,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "maximum",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 127,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "fixed_velocity_default",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 127,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "fixed",
+      "fixedVelocity": 100,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 100,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "fixed_velocity_min",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 127,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "fixed",
+      "fixedVelocity": 1,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 1,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    },
+    {
+      "id": "fixed_velocity_max",
+      "input": {
+        "note": 60,
+        "channel": 1,
+        "velocity": 1,
+        "keyIndex": 0,
+        "scaleIndex": 1,
+        "presetIndex": 4
+      },
+      "transpose": {
+        "target": "WHOLE",
+        "octaveSteps": 0
+      },
+      "velocityMode": "fixed",
+      "fixedVelocity": 127,
+      "expected": {
+        "triggerSuppressed": true,
+        "notes": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "velocity": 127,
+        "noteOffs": [
+          51,
+          55,
+          58,
+          62
+        ],
+        "outputChannel": 1,
+        "sampleOffsetArgument": 0,
+        "noteOffSampleOffsetArgument": 0
+      }
+    }
+  ],
+  "controllerStaticEvidence": [
+    {
+      "event": "CC64 value>=64",
+      "sourceEffect": "sets one global sustain-held flag; does not ignore incoming controller event"
+    },
+    {
+      "event": "CC64 value<64",
+      "sourceEffect": "clears global sustain; releases retained chord voices; does not ignore incoming controller event"
+    },
+    {
+      "event": "CC120 or CC123",
+      "sourceEffect": "panic releases tracked generated notes and clears sustain; does not ignore incoming controller event"
+    },
+    {
+      "event": "other CC",
+      "sourceEffect": "no matching source branch; no explicit filtering or transformation"
+    },
+    {
+      "event": "pitch bend, aftertouch, program change",
+      "sourceEffect": "no script callbacks; Plugin.cpp bridge forwards these event types when not ignored"
+    }
+  ],
+  "hostObserved": false,
+  "hostObservationNote": "This fixture contains only source-derived FL reference cases. Martin separately confirmed native AU routing in Logic by manual human testing; see Tests/HostObservations.json. That result does not mark these FL reference vectors host-observed.",
+  "vectorScenarioAssumption": "Each expected note-off vector describes releasing that case as a single isolated trigger voice: no overlapping trigger owns a shared output pitch, sustain is off, and no panic/host filter intervenes. Output remains source-derived, not host-observed."
+}

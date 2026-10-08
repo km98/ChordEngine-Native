@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "evidenceClass": "MANUAL-HUMAN-HOST-OBSERVATION",
+  "hostObserved": true,
+  "observation": {
+    "artifact": "ChordEngine Native AU development build",
+    "host": "Logic Pro",
+    "machine": "clean second Mac",
+    "testMethod": "manual human test; no DAW automation",
+    "result": "pass",
+    "details": [
+      "Logic recognizes Music-Prod → ChordEngine as a MIDI FX.",
+      "ChordEngine receives MIDI input.",
+      "A valid trigger note generates the expected chord.",
+      "Generated chord MIDI reaches the downstream Classic Electric Piano/software instrument."
+    ],
+    "scope": "Confirms critical AU MIDI routing and chord generation for the tested trigger. It does not establish parity for every source-derived fixture vector, GUI visual behavior, resizing, all GUI controls, or other hosts/formats."
+  },
+  "sourceDerivedFixtures": {
+    "path": "FLReferenceVectors.json",
+    "hostObserved": false,
+    "evidenceClass": "VERIFIED-SOURCE-STATIC",
+    "note": "The 38 source-derived reference vectors remain source-static; the manual native AU observation does not relabel them."
+  },
+  "guiMilestone": {
+    "artifact": "ChordEngine Native AU GUI development build",
+    "host": "Logic Pro",
+    "humanTest": "pending",
+    "status": "GUI visual/control/resize/recorder interaction still needs a separate manual test. Previously confirmed MIDI routing is scoped evidence only."
+  }
+}

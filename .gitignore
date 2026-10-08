@@ -1,0 +1,11 @@
+# Local builds, fetched JUCE dependency, generated plugin bundles
+/Build/*
+!/Build/.gitkeep
+
+# CMake-generated files if an alternate build directory is used in-tree
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.xcodeproj/
+*.xcworkspace/

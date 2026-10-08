@@ -1,0 +1,78 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "path": "HISE Projects/ChordEngine/Scripts/ScriptProcessors/ChordEngine/ScriptProcessor1.js",
+    "sourceSha256": "bd84bf44c64828ad5dbd649f713f46665d018068078d284f9b9ec430844a4ce6",
+    "lines": {
+      "testBankDefaults": "570-597",
+      "triggerSlot": "600-610",
+      "noteFormulaVoicingClampSort": "612-659",
+      "noteOutputHelpers": "669-677",
+      "voiceOwnership": "681-814"
+    },
+    "runtimeStatus": "helper-derived expectations only; active main-script event callbacks absent"
+  },
+  "testBank": {
+    "name": "C Minor Test Bank",
+    "version": 1,
+    "rootKey": 0,
+    "scaleName": "minor",
+    "scaleIntervals": null,
+    "octaveBase": 3,
+    "transposeSemitones": 0,
+    "defaultVoicing": "close",
+    "velocityMode": "dynamic",
+    "fixedVelocity": 100,
+    "chords": [
+      {"slot": 0, "name": "Cm", "rootOffset": 0, "intervals": [0, 3, 7]},
+      {"slot": 1, "name": "C#dim", "rootOffset": 1, "intervals": [0, 3, 6]},
+      {"slot": 2, "name": "D", "rootOffset": 2, "intervals": [0, 4, 7]},
+      {"slot": 3, "name": "D#7", "rootOffset": 3, "intervals": [0, 4, 7, 10]},
+      {"slot": 4, "name": "Emin9", "rootOffset": 4, "intervals": [0, 3, 7, 10, 14]},
+      {"slot": 5, "name": "Fsus4", "rootOffset": 5, "intervals": [0, 5, 7, 12, 17]},
+      {"slot": 6, "name": "F#min11", "rootOffset": 6, "intervals": [0, 3, 7, 10, 14, 17]},
+      {"slot": 7, "name": "G6", "rootOffset": 7, "intervals": [0, 4, 7, 9]},
+      {"slot": 8, "name": "G#aug", "rootOffset": 8, "intervals": [0, 4, 8]},
+      {"slot": 9, "name": "Am7b5", "rootOffset": 9, "intervals": [0, 3, 6, 10]},
+      {"slot": 10, "name": "A#m7", "rootOffset": 10, "intervals": [0, 3, 7, 10]},
+      {"slot": 11, "name": "Bsus2", "rootOffset": 11, "intervals": [0, 2, 7]}
+    ]
+  },
+  "triggerOctaveCases": [
+    {"id": "c2_trigger", "triggerMidiNote": 36, "expectedSlot": 0, "expectedChordNotes": [48, 51, 55]},
+    {"id": "c4_trigger", "triggerMidiNote": 60, "expectedSlot": 0, "expectedChordNotes": [48, 51, 55]},
+    {"id": "c6_trigger", "triggerMidiNote": 84, "expectedSlot": 0, "expectedChordNotes": [48, 51, 55]},
+    {"id": "csharp2_trigger", "triggerMidiNote": 37, "expectedSlot": 1, "expectedChordNotes": [49, 52, 55]},
+    {"id": "csharp4_trigger", "triggerMidiNote": 61, "expectedSlot": 1, "expectedChordNotes": [49, 52, 55]},
+    {"id": "csharp6_trigger", "triggerMidiNote": 85, "expectedSlot": 1, "expectedChordNotes": [49, 52, 55]}
+  ],
+  "formulaCases": [
+    {"id": "cm_close_default", "presetSlot": 0, "rootKey": 0, "octaveBase": 3, "voicing": "close", "transpose": 0, "expectedNotes": [48, 51, 55]},
+    {"id": "csharp_dim_trigger_slot", "presetSlot": 1, "triggerMidiNote": 49, "expectedSlot": 1, "expectedNotes": [49, 52, 55]},
+    {"id": "d_major_trigger_slot", "presetSlot": 2, "triggerMidiNote": 62, "expectedSlot": 2, "expectedNotes": [50, 54, 57]},
+    {"id": "dsharp7_default", "presetSlot": 3, "expectedNotes": [51, 55, 58, 61]},
+    {"id": "emin9_default", "presetSlot": 4, "expectedNotes": [52, 55, 59, 62, 66]},
+    {"id": "fsus4_default", "presetSlot": 5, "expectedNotes": [53, 58, 60, 65, 70]},
+    {"id": "fsharpmin11_default", "presetSlot": 6, "expectedNotes": [54, 57, 61, 64, 68, 71]},
+    {"id": "g6_default", "presetSlot": 7, "expectedNotes": [55, 59, 62, 64]},
+    {"id": "gsharp_aug_default", "presetSlot": 8, "expectedNotes": [56, 60, 64]},
+    {"id": "am7b5_default", "presetSlot": 9, "expectedNotes": [57, 60, 63, 67]},
+    {"id": "asharp_m7_default", "presetSlot": 10, "expectedNotes": [58, 61, 65, 68]},
+    {"id": "b_sus2_default", "presetSlot": 11, "expectedNotes": [59, 61, 66]},
+    {"id": "cm_open", "presetSlot": 0, "voicing": "open", "expectedNotes": [48, 55, 63]},
+    {"id": "cm_spread", "presetSlot": 0, "voicing": "spread", "expectedNotes": [48, 63, 79]},
+    {"id": "uniform_plus_octave", "presetSlot": 0, "transpose": 12, "expectedNotes": [60, 63, 67]},
+    {"id": "uniform_minus_octave", "presetSlot": 0, "transpose": -12, "expectedNotes": [36, 39, 43]},
+    {"id": "high_pitch_clamp", "presetSlot": 11, "octaveBase": 9, "expectedNotes": [127, 127, 127]},
+    {"id": "negative_pitch_clamp", "presetSlot": 0, "octaveBase": 0, "transpose": -48, "expectedNotes": [0, 0, 0]}
+  ],
+  "unsupportedCases": [
+    {"id": "scale_intervals", "status": "unknown", "reason": "source names minor but provides no scale interval pattern or scale filtering"},
+    {"id": "lowest_transpose_target", "status": "unknown", "reason": "not present in checked source; no target-selection logic"},
+    {"id": "highest_transpose_target", "status": "unknown", "reason": "not present in checked source; no target-selection logic"},
+    {"id": "trigger_octave_semantics", "status": "unknown", "reason": "formula uses octaveBase; trigger octave affects slot only in helper"},
+    {"id": "runtime_midi_on_off", "status": "unknown", "reason": "main script has no event callbacks and does not call note-send helpers"},
+    {"id": "velocity_mapping", "status": "unknown", "reason": "velocity mode and fixed value are initialized but no event/control handler applies them"},
+    {"id": "transpose_range", "status": "unknown", "reason": "helper accepts an integer; no allowed range is declared"}
+  ]
+}
