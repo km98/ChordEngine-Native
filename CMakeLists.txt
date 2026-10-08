@@ -339,14 +339,21 @@ if(BUILD_TESTING)
                juce::juce_recommended_warning_flags)
     add_test(NAME ChordEngineStateTests COMMAND ChordEngineStateTests)
 
-    # Optional Windows-only stack diagnosis. It is excluded from normal builds
-    # and never applies the experimental stack reserve to production plugins.
+    # Windows processor tests need a larger stack because they exercise code
+    # paths with substantial nested temporary state. Keep this test-only; never
+    # apply the reserve to production plugin targets.
+    if(WIN32)
+        set(CHORDENGINE_WINDOWS_TEST_STACK_SIZE "33554432" CACHE STRING
+            "Stack reserve for the four Windows processor test executables")
+        foreach(test_target IN ITEMS ChordEngineCoreTests ChordEngineProcessorIntegrationTests
+                                     ChordEngineFunctionalTests ChordEngineStateTests)
+            target_link_options(${test_target} PRIVATE "/STACK:${CHORDENGINE_WINDOWS_TEST_STACK_SIZE}")
+        endforeach()
+    endif()
+
+    # Optional Windows-only stack probe, excluded from normal builds.
     option(CHORDENGINE_WINDOWS_STACK_DIAGNOSTICS
            "Build diagnostic-only Windows processor stack probe" OFF)
-    set(CHORDENGINE_WINDOWS_TEST_STACK_SIZE "8388608" CACHE STRING
-        "Experimental reserve size for the four Windows processor test executables")
-    option(CHORDENGINE_WINDOWS_LARGE_TEST_STACK
-           "Use the experimental reserve for four Windows diagnostic test executables" OFF)
     if(WIN32 AND CHORDENGINE_WINDOWS_STACK_DIAGNOSTICS)
         add_executable(ChordEngineWindowsStackProbe
             Tests/WindowsStackProbe.cpp
@@ -375,14 +382,5 @@ if(BUILD_TESTING)
             PUBLIC juce::juce_recommended_config_flags
                    juce::juce_recommended_warning_flags)
 
-        # Enabled only in a second CI configure after the default-reserve
-        # baseline. Never applied to production AU/VST3 targets.
-        if(CHORDENGINE_WINDOWS_LARGE_TEST_STACK)
-            target_link_options(ChordEngineWindowsStackProbe PRIVATE "/STACK:${CHORDENGINE_WINDOWS_TEST_STACK_SIZE}")
-            foreach(test_target IN ITEMS ChordEngineCoreTests ChordEngineProcessorIntegrationTests
-                                         ChordEngineFunctionalTests ChordEngineStateTests)
-                target_link_options(${test_target} PRIVATE "/STACK:${CHORDENGINE_WINDOWS_TEST_STACK_SIZE}")
-            endforeach()
-        endif()
     endif()
 endif()
