@@ -121,7 +121,7 @@ into the same processor/Core trigger path an external keyboard uses.
 
 | # | Step | Expect |
 | --- | --- | --- |
-| F1 | Open INFO. | `CHORD ENGINE`, `Version v0.4.0`, the ACCOUNT block, the UPDATES block, the TRIAL block and the HELP & FEEDBACK card are all populated with real state. |
+| F1 | Open INFO. | `CHORD ENGINE`, `Version v0.1.0`, the ACCOUNT block, the UPDATES block, the TRIAL block and the HELP & FEEDBACK card are all populated with real state. |
 | F2 | Read the ACCOUNT block before signing in. | `User  Not signed in`, `Music-Prod+  NOT ACTIVE`, `License  Not active - Music-Prod+ unlocks full access`. |
 | F3 | Click **CHECK FOR UPDATES**. | The **Status** row changes to `Open Music-Prod Studio to check for updates`. The **Latest version** row keeps `-`. |
 | F4 | Click **OPEN MUSIC-PROD STUDIO**. | Music-Prod Studio opens (or the OS reports it cannot be found). The plugin does not claim success either way. |

@@ -31,9 +31,9 @@ Compare against the reference geometry: fixed 800×650 canvas, header wordmark a
 7. **Transpose controls**: `TRANSPOSE` caption, `N OCT` chip, and the `-`/`+` stepper pills (drawn bar glyphs — the minus must be a clean horizontal bar and the plus a clean cross, never a corrupted character), plus the `WHOLE` / `LOWEST` / `HIGHEST` row where the active target is filled with the blue accent.
 8. **Velocity section**: `VELOCITY MODE` card with the Dynamic/Maximum/Fixed selector, and the `FIXED VELOCITY` card with a slider and a numeric value; the slider reads as inactive unless Fixed is selected.
 9. **Recorder panel**: `MIDI RECORDER` caption, right-aligned state line (`WAITING FOR ARM`, `ARMED - PLAY TO RECORD`, `RECORDING`, `N TAKE(S) STORED`), and the blue action pill whose label changes between `RECORD ARM`, `CANCEL`, and `STOP TAKE`.
-10. **INFO page**: `CHORD ENGINE` headline, `Version v0.4.0`, `ACCOUNT` (`User  Not signed in`, `Music-Prod+  NOT ACTIVE`, `License  Not verified`), `UPDATES` (current/latest/status rows and greyed `CHECK FOR UPDATES`, `OPEN MUSIC-PROD STUDIO`, `SIGN IN`), `TRIAL` (`Trial access  -`), and the `HELP & FEEDBACK` card. No development-only wording, no placeholder diagnostics text, no malformed characters.
+10. **INFO page**: `CHORD ENGINE` headline, `Version v0.1.0`, `ACCOUNT` (`User  Not signed in`, `Music-Prod+  NOT ACTIVE`, `License  Not verified`), `UPDATES` (current/latest/status rows and greyed `CHECK FOR UPDATES`, `OPEN MUSIC-PROD STUDIO`, `SIGN IN`), `TRIAL` (`Trial access  -`), and the `HELP & FEEDBACK` card. No development-only wording, no placeholder diagnostics text, no malformed characters.
 11. **Internal audio card** shows `INTERNAL AUDIO` with the `Generate internal sound` caption and an `OFF` pill rendered in the reference OFF style. It is a **status surface**, not an interactive switch: clicking must do nothing, and there must be no internal audio in any state.
-12. **Footer** reads `Chord Engine v0.4.0`, discreet bottom-right, and stays visible on both pages.
+12. **Footer** reads `Chord Engine v0.1.0`, discreet bottom-right, and stays visible on both pages.
 
 ## Section B — functional checks
 

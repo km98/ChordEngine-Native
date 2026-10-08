@@ -6,7 +6,7 @@ Code-driven JUCE/CMake rewrite workspace. Development version **0.1.0**. The nat
 - macOS formats: AU MIDI Processor (`aumi`) + VST3.
 - Windows format: VST3.
 - Plugin code is shared between targets; AU/VST3 compatibility IDs remain distinct as documented in CMake.
-- Native JUCE editor reproduces the reference product layout and terminology: two-tone ChordEngine wordmark with CHORD/INFO navigation, chord well with live readout and C4 preview, Key/Scale/Chord Preset row above a **clickable** C2–C7 piano, TRANSPOSE cluster (WHOLE/LOWEST/HIGHEST, −2…+2 octave, drawn −/+ steppers), VELOCITY MODE and FIXED VELOCITY cards, MIDI recorder with three draggable takes, INTERNAL AUDIO card, Music-Prod wordmark slot, `Chord Engine v0.4.0` footer, and an INFO page (account/trial/license/updates structure, Help & Feedback). The layout is painted in the reference 800×650 design space and mapped through one uniform scale, so it stays faithful from 640×520 to 1280×1040.
+- Native JUCE editor reproduces the reference product layout and terminology: two-tone ChordEngine wordmark with CHORD/INFO navigation, chord well with live readout and C4 preview, Key/Scale/Chord Preset row above a **clickable** C2–C7 piano, TRANSPOSE cluster (WHOLE/LOWEST/HIGHEST, −2…+2 octave, drawn −/+ steppers), VELOCITY MODE and FIXED VELOCITY cards, MIDI recorder with three draggable takes, INTERNAL AUDIO card, Music-Prod wordmark slot, `Chord Engine v0.1.0` footer, and an INFO page (account/trial/license/updates structure, Help & Feedback). The layout is painted in the reference 800×650 design space and mapped through one uniform scale, so it stays faithful from 640×520 to 1280×1040.
 - Every visible interactive control is real. The piano keys push real notes into the processor's Core trigger path, the fixed-velocity slider is a real interactive `juce::Slider`, and the recorder/navigation/INFO controls are bound to real actions. No painted fake sliders, toggles, buttons or keyboard keys exist.
 - Internal audio is **not** implemented: the plugin is a MIDI effect with no audio bus, so the reference internal-synth switch cannot work without changing the AU/VST3 architecture. The card keeps the reference geometry and caption but publishes the capability as unavailable (`N/A` chip with the reason on screen and in a tooltip); the limitation is documented rather than faked. Account/update/licensing and the trial clock are real and connected (see below).
 - AU MIDI FX recognition, trigger-note chord generation, and downstream MIDI routing have been manually verified in Logic Pro on a clean second Mac. Source-derived vectors remain separate non-host evidence.
@@ -181,7 +181,7 @@ service, anonymously, from a self-contained module in `Source/Updates/` that is
   ever fabricated.
 - **Actual build version.** What the plugin sends and what the UI shows both
   come from the build metadata (`JucePlugin_VersionString`, `0.1.0` in this
-  development build); `0.4.0` is not hardcoded anywhere in the client.
+  development build); the updater and the UI never use `0.4.0`. The only `0.4.0` in the client is the licensing reference constant `productVersion`, sent to the auth service (see `Source/Licensing/LicensingTypes.h`).
 - **Threading.** Exactly one background worker (`juce::ThreadPool { 1 }`),
   results delivered with `MessageManager::callAsync`, the audio/MIDI thread
   never touches the module, and `processBlock` is asserted to contain no update
