@@ -343,8 +343,10 @@ if(BUILD_TESTING)
     # and never applies the experimental stack reserve to production plugins.
     option(CHORDENGINE_WINDOWS_STACK_DIAGNOSTICS
            "Build diagnostic-only Windows processor stack probe" OFF)
+    set(CHORDENGINE_WINDOWS_TEST_STACK_SIZE "8388608" CACHE STRING
+        "Experimental reserve size for the four Windows processor test executables")
     option(CHORDENGINE_WINDOWS_LARGE_TEST_STACK
-           "Use an 8 MiB reserve for four Windows diagnostic test executables" OFF)
+           "Use the experimental reserve for four Windows diagnostic test executables" OFF)
     if(WIN32 AND CHORDENGINE_WINDOWS_STACK_DIAGNOSTICS)
         add_executable(ChordEngineWindowsStackProbe
             Tests/WindowsStackProbe.cpp
@@ -376,10 +378,10 @@ if(BUILD_TESTING)
         # Enabled only in a second CI configure after the default-reserve
         # baseline. Never applied to production AU/VST3 targets.
         if(CHORDENGINE_WINDOWS_LARGE_TEST_STACK)
-            target_link_options(ChordEngineWindowsStackProbe PRIVATE "/STACK:8388608")
+            target_link_options(ChordEngineWindowsStackProbe PRIVATE "/STACK:${CHORDENGINE_WINDOWS_TEST_STACK_SIZE}")
             foreach(test_target IN ITEMS ChordEngineCoreTests ChordEngineProcessorIntegrationTests
                                          ChordEngineFunctionalTests ChordEngineStateTests)
-                target_link_options(${test_target} PRIVATE "/STACK:8388608")
+                target_link_options(${test_target} PRIVATE "/STACK:${CHORDENGINE_WINDOWS_TEST_STACK_SIZE}")
             endforeach()
         endif()
     endif()
