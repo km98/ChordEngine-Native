@@ -45,6 +45,10 @@ jobs:
             $err = "Build/Windows/probe-normal-$name.stderr.log"
             $p = Start-Process -FilePath $exe -ArgumentList $mode -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
             "NORMAL $mode exit=$($p.ExitCode)" | Tee-Object -Append -FilePath Build/Windows/stack-experiment-summary.txt
+            Get-Content $out
+            if (Test-Path $err) { Get-Content $err }
+            $probeOutput = (Get-Content $out -Raw).Trim() -replace '[\r\n]+', '; '
+            Write-Output "::notice title=Normal stack probe::mode=$mode exit=$($p.ExitCode) $probeOutput"
             if ($p.ExitCode -ne 0) { $failed = $true }
           }
           if ($failed) { exit 1 }
@@ -62,6 +66,9 @@ jobs:
             $err = "Build/Windows/normal-stack-$test.stderr.log"
             $p = Start-Process -FilePath $exe -WorkingDirectory $work -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
             "NORMAL TEST $test exit=$($p.ExitCode)" | Tee-Object -Append -FilePath Build/Windows/stack-experiment-summary.txt
+            Get-Content $out -Tail 40
+            if (Test-Path $err) { Get-Content $err -Tail 40 }
+            Write-Output "::notice title=Normal stack test $test::exit=$($p.ExitCode)"
             if ($p.ExitCode -ne 0) { $failed = $true }
           }
           if ($failed) { exit 1 }
@@ -97,6 +104,10 @@ jobs:
             $err = "Build/Windows/probe-large-$name.stderr.log"
             $p = Start-Process -FilePath $exe -ArgumentList $mode -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
             "LARGE $mode exit=$($p.ExitCode)" | Tee-Object -Append -FilePath Build/Windows/stack-experiment-summary.txt
+            Get-Content $out
+            if (Test-Path $err) { Get-Content $err }
+            $probeOutput = (Get-Content $out -Raw).Trim() -replace '[\r\n]+', '; '
+            Write-Output "::notice title=8 MiB stack probe::mode=$mode exit=$($p.ExitCode) $probeOutput"
             if ($p.ExitCode -ne 0) { $failed = $true }
           }
           if ($failed) { exit 1 }
@@ -114,6 +125,9 @@ jobs:
             $err = "Build/Windows/large-stack-$test.stderr.log"
             $p = Start-Process -FilePath $exe -WorkingDirectory $work -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
             "LARGE TEST $test exit=$($p.ExitCode)" | Tee-Object -Append -FilePath Build/Windows/stack-experiment-summary.txt
+            Get-Content $out -Tail 40
+            if (Test-Path $err) { Get-Content $err -Tail 40 }
+            Write-Output "::notice title=8 MiB stack test $test::exit=$($p.ExitCode)"
             if ($p.ExitCode -ne 0) { $failed = $true }
           }
           if ($failed) { exit 1 }
@@ -126,6 +140,9 @@ jobs:
           $err = 'Build/Windows/ctest-large-stack-stderr.log'
           $p = Start-Process -FilePath 'ctest' -ArgumentList @('--test-dir','Build/Windows','-C','Release','--output-on-failure','--output-log','Build/Windows/ctest-large-stack-output.log','--output-junit','Build/Windows/ctest-large-stack-junit.xml') -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
           "LARGE FULL CTEST exit=$($p.ExitCode)" | Tee-Object -Append -FilePath Build/Windows/stack-experiment-summary.txt
+          Get-Content $out -Tail 100
+          if (Test-Path $err) { Get-Content $err -Tail 100 }
+          Write-Output "::notice title=8 MiB full CTest::exit=$($p.ExitCode)"
           exit $p.ExitCode
 
       - name: Upload stack and CTest diagnostics (always, after all experiments)
