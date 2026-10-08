@@ -32,7 +32,9 @@ Before testing, confirm the installed binary hashes match the current Release bu
 - [ ] B3. Chord preset changes all 12 presets (basic, pop, piano, emotional, dreamy, cinematic, R&B, neo soul, lo-fi, house, deep, ambient).
 - [ ] B4. Transpose target WHOLE, LOWEST and HIGHEST each change which notes move.
 - [ ] B5. Transpose octave runs -2 to +2 steps, and the readout matches the state.
-- [ ] B6. Velocity mode Dynamic, Maximum 127, Fixed. Fixed accepts 1 to 127.
+- [ ] B6. Velocity mode Dynamic: generated note velocities follow the played velocity.
+- [ ] B6a. Velocity mode Maximum: every generated note is velocity 127.
+- [ ] B6b. Velocity mode Fixed: every generated note uses the Fixed Velocity value, which accepts 1 to 127.
 - [ ] B7. The fixed velocity value appears as the note-on velocity in Logic's MIDI editor.
 
 ## C. Piano and MIDI behaviour
