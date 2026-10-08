@@ -353,9 +353,8 @@ published_sha="$(sha256of "$OUT_DIR/$PKG_NAME")"
 [ "$mounted_sha" = "$published_sha" ] || die "DMG payload pkg does not match the published pkg"
 echo "  payload sha256 identical: $mounted_sha"
 
-xcrun stapler validate "$MOUNTED_PKG" || die "stapled ticket missing inside the DMG"
-
 if [ "$DO_NOTARIZE" = "1" ]; then
+    xcrun stapler validate "$MOUNTED_PKG" || die "stapled ticket missing inside the DMG"
     # spctl exits non-zero when it rejects, so swallow the status and gate on
     # the recorded output instead of the exit code.
     spctl --assess --type install --verbose=4 "$MOUNTED_PKG" 2>&1 \
@@ -386,4 +385,8 @@ echo "sha256   : $(sha256of "$OUT_DIR/$DMG_NAME")"
 echo "installer: $OUT_DIR/$PKG_NAME"
 echo "sha256   : $(sha256of "$OUT_DIR/$PKG_NAME")"
 echo
-echo "SIGNED + NOTARIZED DMG OK"
+if [ "$DO_NOTARIZE" = "1" ]; then
+    echo "SIGNED + NOTARIZED DMG OK"
+else
+    echo "SIGNED DMG OK (NOT NOTARIZED - release candidate only)"
+fi
