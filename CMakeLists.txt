@@ -338,4 +338,49 @@ if(BUILD_TESTING)
         PUBLIC juce::juce_recommended_config_flags
                juce::juce_recommended_warning_flags)
     add_test(NAME ChordEngineStateTests COMMAND ChordEngineStateTests)
+
+    # Optional Windows-only stack diagnosis. It is excluded from normal builds
+    # and never applies the experimental stack reserve to production plugins.
+    option(CHORDENGINE_WINDOWS_STACK_DIAGNOSTICS
+           "Build diagnostic-only Windows processor stack probe" OFF)
+    option(CHORDENGINE_WINDOWS_LARGE_TEST_STACK
+           "Use an 8 MiB reserve for four Windows diagnostic test executables" OFF)
+    if(WIN32 AND CHORDENGINE_WINDOWS_STACK_DIAGNOSTICS)
+        add_executable(ChordEngineWindowsStackProbe
+            Tests/WindowsStackProbe.cpp
+            Source/State/PluginState.cpp
+            Source/PluginProcessor.cpp
+            Source/PluginEditor.cpp)
+        target_include_directories(ChordEngineWindowsStackProbe PRIVATE Source)
+        target_compile_definitions(ChordEngineWindowsStackProbe PRIVATE
+            CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+            JucePlugin_Name="ChordEngine"
+            JucePlugin_IsSynth=0
+            JucePlugin_IsMidiEffect=1
+            JucePlugin_WantsMidiInput=1
+            JucePlugin_ProducesMidiOutput=1
+            JucePlugin_Manufacturer="Music-Prod"
+            JucePlugin_ManufacturerCode=0x41626364
+            JucePlugin_PluginCode=0x41626364
+            JucePlugin_Version=0.1.0
+            JucePlugin_VersionString="0.1.0"
+            JucePlugin_CFBundleIdentifier=com.myCompany.product
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0)
+        target_link_libraries(ChordEngineWindowsStackProbe
+            PRIVATE ChordEngineCore ChordEngineLicensing ChordEngineUpdates ChordEngineAssets
+                    juce::juce_audio_utils
+            PUBLIC juce::juce_recommended_config_flags
+                   juce::juce_recommended_warning_flags)
+
+        # Enabled only in a second CI configure after the default-reserve
+        # baseline. Never applied to production AU/VST3 targets.
+        if(CHORDENGINE_WINDOWS_LARGE_TEST_STACK)
+            target_link_options(ChordEngineWindowsStackProbe PRIVATE "/STACK:8388608")
+            foreach(test_target IN ITEMS ChordEngineCoreTests ChordEngineProcessorIntegrationTests
+                                         ChordEngineFunctionalTests ChordEngineStateTests)
+                target_link_options(${test_target} PRIVATE "/STACK:8388608")
+            endforeach()
+        endif()
+    endif()
 endif()
