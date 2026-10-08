@@ -1,0 +1,36 @@
+name: Windows VST3
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure (VST3, tests on)
+        run: cmake -S . -B Build/Windows -A x64 -DBUILD_TESTING=ON
+
+      - name: Build VST3 target
+        run: cmake --build Build/Windows --config Release --target ChordEngineVST3_VST3
+
+      - name: Build all targets including tests
+        run: cmake --build Build/Windows --config Release
+
+      - name: Run CTest
+        run: ctest --test-dir Build/Windows -C Release --output-on-failure
+
+      - name: Archive VST3 bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChordEngine-VST3-windows
+          path: Build/Windows/ChordEngineVST3_artefacts/Release/VST3/ChordEngine.vst3
+          if-no-files-found: error
