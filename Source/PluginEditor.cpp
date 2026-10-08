@@ -193,6 +193,17 @@ juce::String chordSuffix(const chordengine::core::ResolvedChord& chord)
     return "5";
 }
 
+// Full persisted-field comparison. The timer re-syncs the controls whenever ANY
+// of these changed, including values restored from host state.
+bool sameConfiguration(const chordengine::core::CoreConfiguration& a,
+                       const chordengine::core::CoreConfiguration& b) noexcept
+{
+    return a.keyIndex == b.keyIndex && a.scale == b.scale && a.preset == b.preset
+        && a.velocityMode == b.velocityMode && a.fixedVelocity == b.fixedVelocity
+        && a.transpose.target == b.transpose.target
+        && a.transpose.octaveSteps == b.transpose.octaveSteps;
+}
+
 // Chord symbol for one trigger note, resolved by the Core itself
 // (ChordPresetSystem::resolve) - the same resolution the engine voices.
 juce::String chordSymbolFor(int triggerNote,
@@ -1409,6 +1420,7 @@ void ChordEngineAudioProcessorEditor::resized()
 void ChordEngineAudioProcessorEditor::updateStateDisplay()
 {
     const auto configuration = processor_.configurationSnapshot();
+    displayedConfiguration_ = configuration;
     keySelector_.setSelectedId(configuration.keyIndex + 1, juce::dontSendNotification);
     scaleSelector_.setSelectedId(static_cast<int>(configuration.scale) + 1,
                                  juce::dontSendNotification);
@@ -1792,13 +1804,8 @@ void ChordEngineAudioProcessorEditor::timerCallback()
     driveLicensingTick(juce::Time::currentTimeMillis());
 
     const auto configuration = processor_.configurationSnapshot();
-    if (keySelector_.getSelectedId() != configuration.keyIndex + 1
-        || scaleSelector_.getSelectedId() != static_cast<int>(configuration.scale) + 1
-        || presetSelector_.getSelectedId() != static_cast<int>(configuration.preset) + 1
-        || velocityModeSelector_.getSelectedId() != static_cast<int>(configuration.velocityMode) + 1)
-    {
+    if (!sameConfiguration(displayedConfiguration_, configuration))
         updateStateDisplay();
-    }
 
     updateRecorderDisplay();
     updateChordReadout();

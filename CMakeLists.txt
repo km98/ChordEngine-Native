@@ -306,4 +306,36 @@ if(BUILD_TESTING)
         PUBLIC juce::juce_recommended_config_flags
                juce::juce_recommended_warning_flags)
     add_test(NAME ChordEngineUpdateTests COMMAND ChordEngineUpdateTests)
+
+    # Plugin state persistence: serialize/restore round trips, the malformed-
+    # payload policy, MIDI output after restore, instance independence and GUI
+    # re-synchronisation. Drives real processor and editor instances.
+    add_executable(ChordEngineStateTests
+        Tests/StateTests.cpp
+        Source/State/PluginState.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp)
+    target_include_directories(ChordEngineStateTests PRIVATE Source)
+    target_compile_definitions(ChordEngineStateTests PRIVATE
+        CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        JucePlugin_Name="ChordEngine"
+        JucePlugin_IsSynth=0
+        JucePlugin_IsMidiEffect=1
+        JucePlugin_WantsMidiInput=1
+        JucePlugin_ProducesMidiOutput=1
+        JucePlugin_Manufacturer="Music-Prod"
+        JucePlugin_ManufacturerCode=0x41626364
+        JucePlugin_PluginCode=0x41626364
+        JucePlugin_Version=0.1.0
+        JucePlugin_VersionString="0.1.0"
+        JucePlugin_CFBundleIdentifier=com.myCompany.product
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(ChordEngineStateTests
+        PRIVATE ChordEngineCore ChordEngineLicensing ChordEngineUpdates ChordEngineAssets
+                juce::juce_audio_utils
+        PUBLIC juce::juce_recommended_config_flags
+               juce::juce_recommended_warning_flags)
+    add_test(NAME ChordEngineStateTests COMMAND ChordEngineStateTests)
 endif()

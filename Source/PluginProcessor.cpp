@@ -742,12 +742,26 @@ juce::AudioProcessorEditor* ChordEngineAudioProcessor::createEditor()
 
 void ChordEngineAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
-    destination.reset();
+    // Only the persistent musical configuration is written; see PluginState.h.
+    const auto utf8 = chordengine::state::serialize(stateSnapshot()).toStdString();
+    destination.replaceAll(utf8.data(), utf8.size());
 }
 
 void ChordEngineAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    juce::ignoreUnused(data, sizeInBytes);
+    if (data == nullptr || sizeInBytes <= 0)
+        return;
+
+    // A malformed or incompatible payload yields no state at all, so the
+    // current valid configuration stays in force.
+    const auto restored = chordengine::state::deserialize(data, static_cast<std::size_t>(sizeInBytes));
+    if (!restored.has_value())
+        return;
+
+    // One validated, atomic publish of the whole configuration. processBlock
+    // applies it to the Core at its next block boundary; the editor reads it
+    // back from here, so the GUI never becomes the source of truth.
+    setConfiguration(restored->configuration);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

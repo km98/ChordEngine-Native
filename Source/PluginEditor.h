@@ -34,6 +34,13 @@ public:
         std::unique_ptr<chordengine::updates::UpdateTransport> updateTransport = {});
     ~ChordEngineAudioProcessorEditor() override;
 
+    // Read-only view of the configuration the controls currently show. Used by
+    // tests to prove the GUI re-synchronised every restored field.
+    const chordengine::core::CoreConfiguration& displayedConfiguration() const noexcept
+    {
+        return displayedConfiguration_;
+    }
+
     void paint(juce::Graphics& graphics) override;
     void resized() override;
 
@@ -339,6 +346,9 @@ private:
     std::unique_ptr<chordengine::updates::UpdateService> updates_;
     std::unique_ptr<chordengine::licensing::LicensingBoundary> licensing_;
     double lastLicensingTickMs_ = 0.0;
+    // The configuration the controls currently show. The timer compares it with
+    // the processor so restored or externally changed settings reach the GUI.
+    chordengine::core::CoreConfiguration displayedConfiguration_ {};
 
     bool infoPageVisible_ = false;
     bool gateVisible_ = false;
