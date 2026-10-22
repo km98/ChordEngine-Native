@@ -1,0 +1,4 @@
+# Byte-exact data: pack files and captured 0.5.1 state are compared byte for
+# byte by the tests, so a Windows checkout must not convert line endings.
+Resources/Packs/*.json -text
+Tests/Fixtures/** -text

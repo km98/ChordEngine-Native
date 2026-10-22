@@ -69,6 +69,18 @@ PKG_IDENTIFIER="com.musicprod.chordengine.pkg"
 APP_ID="Developer ID Application: Martin Kadziolka (3A4R5EKM7V)"
 INSTALLER_ID="Developer ID Installer: Martin Kadziolka (3A4R5EKM7V)"
 NOTARY_PROFILE="${NOTARY_PROFILE:-ChordEngineFL-notary}"
+# Alternatively (as VYRE does) an App Store Connect API key: NOTARY_KEY (.p8
+# path), NOTARY_KEY_ID and NOTARY_ISSUER_FILE (a file holding the issuer ID).
+# When NOTARY_KEY is set it replaces the keychain profile. No value is printed.
+NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+NOTARY_LABEL="profile: $NOTARY_PROFILE"
+if [ -n "${NOTARY_KEY:-}" ]; then
+    [ -f "$NOTARY_KEY" ] || { echo "ERROR: notary key not found" >&2; exit 1; }
+    [ -n "${NOTARY_KEY_ID:-}" ] || { echo "ERROR: NOTARY_KEY_ID is not set" >&2; exit 1; }
+    [ -f "${NOTARY_ISSUER_FILE:-}" ] || { echo "ERROR: NOTARY_ISSUER_FILE not found" >&2; exit 1; }
+    NOTARY_ARGS=(--key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$(tr -d '[:space:]' < "$NOTARY_ISSUER_FILE")")
+    NOTARY_LABEL="App Store Connect API key"
+fi
 
 DO_NOTARIZE=1
 FORCE=0
@@ -114,7 +126,7 @@ echo "repo        : $REPO_ROOT"
 echo "build dir   : $BUILD_DIR"
 echo "output dir  : $OUT_DIR"
 echo "version     : $VERSION"
-echo "notarize    : $DO_NOTARIZE (profile: $NOTARY_PROFILE)"
+echo "notarize    : $DO_NOTARIZE ($NOTARY_LABEL)"
 
 [ -d "$AU_SRC" ]  || die "AU bundle not found: $AU_SRC"
 [ -d "$VST3_SRC" ] || die "VST3 bundle not found: $VST3_SRC"
@@ -173,9 +185,9 @@ printf '%s\n' "$ALL_IDS" | grep -F -e "$APP_ID" -e "$INSTALLER_ID" || true
 echo "both identities present"
 
 if [ "$DO_NOTARIZE" = "1" ]; then
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
-        || die "notarytool profile '$NOTARY_PROFILE' is not usable (store credentials first)"
-    echo "notary profile '$NOTARY_PROFILE' authenticates"
+    xcrun notarytool history "${NOTARY_ARGS[@]}" >/dev/null 2>&1 \
+        || die "notarytool credentials ($NOTARY_LABEL) are not usable"
+    echo "notary credentials ($NOTARY_LABEL) authenticate"
 fi
 fi
 
@@ -338,7 +350,7 @@ fi
 if [ "$DO_NOTARIZE" = "1" ]; then
     step "Notarize installer package"
     NOTARY_OUT="$TMP/notary-pkg.log"
-    if ! xcrun notarytool submit "$SIGNED_PKG" --keychain-profile "$NOTARY_PROFILE" \
+    if ! xcrun notarytool submit "$SIGNED_PKG" "${NOTARY_ARGS[@]}" \
             --wait --output-format json >"$NOTARY_OUT" 2>&1; then
         cat "$NOTARY_OUT" >&2
         die "notarytool submit failed for the installer package"
@@ -408,7 +420,7 @@ fi
 if [ "$DO_NOTARIZE" = "1" ]; then
     step "Notarize DMG"
     NOTARY_OUT="$TMP/notary-dmg.log"
-    if ! xcrun notarytool submit "$UNSIGNED_DMG" --keychain-profile "$NOTARY_PROFILE" \
+    if ! xcrun notarytool submit "$UNSIGNED_DMG" "${NOTARY_ARGS[@]}" \
             --wait --output-format json >"$NOTARY_OUT" 2>&1; then
         cat "$NOTARY_OUT" >&2
         die "notarytool submit failed for the DMG"

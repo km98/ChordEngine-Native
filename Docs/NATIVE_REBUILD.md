@@ -237,7 +237,8 @@ The Windows VST3 currently has no editor (`createView` supports only
 - Editor: SIGN IN is not clicked in tests (needs an auth-service seam in the
   processor), keyboard focus/navigation not ported, selector popups are native
   menus; Windows editor (plan above).
-- Release packaging: `Tools/PackageMacDMG.sh` (without `--unsigned`) signs,
-  notarizes and staples; only the owner runs it.
+- Release packaging: a signed, notarized 0.6.0 candidate exists
+  (`Docs/RELEASE_0.6.0_CANDIDATE.md`); real-DAW test steps in
+  `Docs/DAW_TEST_0.6.0.md`. Not released.
 - `Docs/MPF_REQUESTS.md`: what ChordEngine would want from the Music-Prod
   Plugin Framework so the shared parts live there.
