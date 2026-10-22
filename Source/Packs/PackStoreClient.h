@@ -3,7 +3,12 @@
 #include "PackFormat.h"
 #include "PackLibrary.h"
 
-#include <juce_core/juce_core.h>
+#include "Platform/Bytes.h"
+#include "Platform/Json.h"
+#include "Platform/Platform.h"
+#include "Platform/Text.h"
+
+#include <string>
 
 #include <functional>
 #include <memory>
@@ -41,7 +46,7 @@ inline constexpr std::size_t maxControlReplyBytes = 64u * 1024u;
 struct StoreReply
 {
     int status = 0;
-    juce::MemoryBlock body;
+    platform::Bytes body;
     bool transportOk = false; // the server answered, whatever the status
     bool truncated = false;
 };
@@ -56,66 +61,64 @@ public:
     using Callback = std::function<void(StoreReply)>;
     virtual ~PackStoreTransport() = default;
 
-    virtual void get(const juce::String& url, std::size_t maxBytes, Callback callback) = 0;
-    virtual void postJson(const juce::String& url, const juce::String& json,
+    virtual void get(const std::string& url, std::size_t maxBytes, Callback callback) = 0;
+    virtual void postJson(const std::string& url, const std::string& json,
                           std::size_t maxBytes, Callback callback) = 0;
 };
 
-// Production transport: juce::URL on a private single-worker ThreadPool,
-// replies marshalled to the message thread (the MusicProdAuthService model).
+// Production transport: the platform HTTP layer on a private single-worker
+// queue, replies marshalled to the main thread (the MusicProdAuthService model).
 class HttpPackStoreTransport final : public PackStoreTransport
 {
 public:
     HttpPackStoreTransport();
     ~HttpPackStoreTransport() override;
 
-    void get(const juce::String& url, std::size_t maxBytes, Callback callback) override;
-    void postJson(const juce::String& url, const juce::String& json,
+    void get(const std::string& url, std::size_t maxBytes, Callback callback) override;
+    void postJson(const std::string& url, const std::string& json,
                   std::size_t maxBytes, Callback callback) override;
 
 private:
-    void enqueue(juce::String url, juce::String postBody, bool isPost,
+    void enqueue(std::string url, std::string postBody, bool isPost,
                  std::size_t maxBytes, Callback callback);
 
-    juce::ThreadPool pool_ { 1 };
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HttpPackStoreTransport)
+    platform::WorkerQueue worker_ { 3000 };
 };
 
 // ---------------------------------------------------------------- catalog
 struct CatalogEntry
 {
-    juce::String slug;
-    juce::String name;
-    juce::String description;
-    juce::String version;
+    std::string slug;
+    std::string name;
+    std::string description;
+    std::string version;
     int presetCount = 0;
     bool isStock = false;
-    juce::int64 sizeBytes = 0;
-    juce::String sha256;
-    juce::String artworkUrl; // "" when absent
+    std::int64_t sizeBytes = 0;
+    std::string sha256;
+    std::string artworkUrl; // "" when absent
     int sortOrder = 0;
 };
 
 struct Catalog
 {
     int version = 0;
-    juce::String generatedAt;
+    std::string generatedAt;
     std::vector<CatalogEntry> packs; // ordered by sortOrder, then name
-    juce::StringArray skipped;       // entries that failed validation
+    std::vector<std::string> skipped; // entries that failed validation
 
-    const CatalogEntry* find(const juce::String& slug) const noexcept;
+    const CatalogEntry* find(const std::string& slug) const noexcept;
 };
 
 // Validates the catalog document. A malformed document fails as a whole; a
 // malformed ENTRY is skipped (and named in `skipped`) so one bad row on the
 // server never empties the store page.
-std::optional<Catalog> parseCatalog(const juce::String& json, juce::String& error);
+std::optional<Catalog> parseCatalog(const std::string& json, std::string& error);
 
 // https only - except plain http to 127.0.0.1 / localhost, so the local test
 // server works. Anything else (other schemes, http to a remote host, no
 // host) is refused before a request is made.
-bool isAllowedStoreUrl(const juce::String& url);
+bool isAllowedStoreUrl(const std::string& url);
 
 // ---------------------------------------------------------------- client
 class PackStoreClient
@@ -138,16 +141,16 @@ public:
     {
         bool ok = false;
         Catalog catalog;
-        juce::String error;
+        std::string error;
     };
 
     struct DownloadResult
     {
         DownloadOutcome outcome = DownloadOutcome::invalidResponse;
-        juce::String slug;
-        juce::String version;   // installed version on success
-        juce::String message;   // short, user-facing
-        juce::String unlockUrl; // set for membershipRequired
+        std::string slug;
+        std::string version;   // installed version on success
+        std::string message;   // short, user-facing
+        std::string unlockUrl; // set for membershipRequired
     };
 
     using CatalogCallback = std::function<void(CatalogResult)>;
@@ -155,30 +158,29 @@ public:
 
     // `origin` must end with "/" (one is appended otherwise). The library is
     // borrowed and must outlive the client.
-    PackStoreClient(PackStoreTransport& transport, PackLibrary& library, juce::String origin = {});
+    PackStoreClient(PackStoreTransport& transport, PackLibrary& library, std::string origin = {});
     ~PackStoreClient();
 
-    juce::String catalogUrl() const;
-    juce::String functionUrl() const;
+    std::string catalogUrl() const;
+    std::string functionUrl() const;
 
     // Callbacks run on the message thread, and never after the client has
     // been destroyed.
     void fetchCatalog(CatalogCallback callback);
-    void download(const juce::String& token, const juce::String& slug, DownloadCallback callback);
+    void download(const std::string& token, const std::string& slug, DownloadCallback callback);
 
 private:
-    void deliverDownloadGrant(const juce::String& slug, const StoreReply& reply,
+    void deliverDownloadGrant(const std::string& slug, const StoreReply& reply,
                               DownloadCallback callback);
-    void deliverPackBytes(const juce::String& slug, const juce::String& version,
-                          const juce::String& sha256, const StoreReply& reply,
+    void deliverPackBytes(const std::string& slug, const std::string& version,
+                          const std::string& sha256, const StoreReply& reply,
                           DownloadCallback callback);
 
     PackStoreTransport& transport_;
     PackLibrary& library_;
-    juce::String origin_;
+    std::string origin_;
 
-    JUCE_DECLARE_WEAK_REFERENCEABLE(PackStoreClient)
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PackStoreClient)
+    platform::LifetimeToken lifetime_;
 };
 
 // ---------------------------------------------------------- store view
@@ -204,22 +206,22 @@ struct StoreAccess
 
 struct PackListing
 {
-    juce::String slug;
-    juce::String name;
-    juce::String description;
+    std::string slug;
+    std::string name;
+    std::string description;
     int presetCount = 0;
     PackStatus status = PackStatus::signInRequired;
-    juce::String statusText;      // "Installed · 12 presets", "Click to download", ...
+    std::string statusText;      // "Installed · 12 presets", "Click to download", ...
     bool usable = false;          // its presets may be offered right now
     bool canDownload = false;     // a click should call download()
     bool inCatalog = false;
-    juce::String installedVersion; // "" when not installed
-    juce::String latestVersion;    // "" when not in the catalog
+    std::string installedVersion; // "" when not installed
+    std::string latestVersion;    // "" when not in the catalog
 };
 
 // "Built in · 12 presets", "Installed · 4 presets", "Update available · 1.1.0",
 // "Click to download", "Music-Prod+ required", "Sign in to download".
-juce::String statusText(PackStatus status, int presetCount, const juce::String& latestVersion = {});
+std::string statusText(PackStatus status, int presetCount, const std::string& latestVersion = {});
 
 // Merges the catalog (may be null: offline / not fetched yet), the installed
 // packs and the account state. Order: stock first, then catalog order, then

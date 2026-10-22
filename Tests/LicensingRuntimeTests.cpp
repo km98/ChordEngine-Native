@@ -5,8 +5,13 @@
 
 #include "Licensing/LicensingRuntime.h"
 
-#include <juce_core/juce_core.h>
-#include <juce_events/juce_events.h>
+#include "Platform/Text.h"
+#include "TestSupport.h"
+
+#include <chrono>
+#include <filesystem>
+#include <string>
+#include <thread>
 
 #include <cstdlib>
 #include <iostream>
@@ -19,7 +24,7 @@ namespace
 {
 int casesPassed = 0;
 
-void require(bool condition, const juce::String& message)
+void require(bool condition, const std::string& message)
 {
     if (!condition)
     {
@@ -36,47 +41,42 @@ constexpr double minuteMs = 60.0 * 1000.0;
 class MockAuthService final : public chordengine::licensing::AuthService
 {
 public:
-    void start(const juce::String&, const juce::String&, const juce::String&, const juce::String&,
+    void start(const std::string&, const std::string&, const std::string&, const std::string&,
                Callback) override {}
-    void poll(const juce::String&, Callback) override {}
-    void entitlements(const juce::String& token, Callback callback) override
+    void poll(const std::string&, Callback) override {}
+    void entitlements(const std::string& token, Callback callback) override
     {
         ++entitlementCalls;
         lastToken = token;
         pending = std::move(callback);
     }
-    void logout(const juce::String&, Callback) override {}
-    void activateLicense(const juce::String&, const juce::String&, const juce::String&,
-                        const juce::String&, const juce::String&, const juce::String&,
+    void logout(const std::string&, Callback) override {}
+    void activateLicense(const std::string&, const std::string&, const std::string&,
+                        const std::string&, const std::string&, const std::string&,
                         Callback) override {}
 
     int entitlementCalls = 0;
-    juce::String lastToken;
+    std::string lastToken;
     Callback pending;
 };
 
-juce::var object(const std::vector<std::pair<const char*, juce::var>>& fields)
+chordengine::platform::Json object(const std::vector<std::pair<const char*, chordengine::platform::Json>>& fields)
 {
-    juce::DynamicObject::Ptr dynamic = new juce::DynamicObject();
+    auto dynamic = chordengine::platform::Json::object();
     for (const auto& field : fields)
-        dynamic->setProperty(field.first, field.second);
-    return juce::var(dynamic.get());
+        dynamic.set(field.first, field.second);
+    return dynamic;
 }
 
-juce::File freshAuthFile(const juce::String& name)
+std::filesystem::path freshAuthFile(const std::string& name)
 {
-    auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                   .getChildFile("ChordEngine-LicensingRuntimeTests")
-                   .getChildFile(name);
-    dir.deleteRecursively();
-    dir.createDirectory();
-    return dir.getChildFile("auth.json");
+    return chordengine::test::freshDirectory("ChordEngine-LicensingRuntimeTests", name) / "auth.json";
 }
 
 // A Music-Prod+ member's saved answer, verified `ageDays` ago.
-void writeMemberFile(const juce::File& file, double ageDays, bool viaLicense = false)
+void writeMemberFile(const std::filesystem::path& file, double ageDays, bool viaLicense = false)
 {
-    const auto verifiedAt = juce::Time::currentTimeMillis() - static_cast<juce::int64>(ageDays * dayMs);
+    const auto verifiedAt = chordengine::platform::currentTimeMillis() - static_cast<std::int64_t>(ageDays * dayMs);
     const auto json = object({
         { "token", "member-token" },
         { "display_name", "Member" },
@@ -90,13 +90,13 @@ void writeMemberFile(const juce::File& file, double ageDays, bool viaLicense = f
         { "license_status", viaLicense ? "active" : "none" },
         { "devices_used", viaLicense ? 1 : 0 },
         { "device_limit", 3 },
-        { "verified_at", static_cast<juce::int64>(verifiedAt) },
+        { "verified_at", static_cast<std::int64_t>(verifiedAt) },
     });
-    file.replaceWithText(juce::JSON::toString(json));
+    chordengine::platform::writeFileAtomically(file, (json).dump());
 }
 
 // The server's answer for a member whose Music-Prod+ ended.
-juce::var lapsedAnswer()
+chordengine::platform::Json lapsedAnswer()
 {
     return object({
         { "ok", true },
@@ -117,7 +117,7 @@ struct Rig
     int gateCalls = 0;
     bool activity = false;
 
-    explicit Rig(const juce::File& file)
+    explicit Rig(const std::filesystem::path& file)
     {
         auto service = std::make_unique<MockAuthService>();
         auth = service.get();
@@ -132,7 +132,7 @@ struct Rig
     // Runs the clock for `ms` of real time in 100 ms steps.
     void run(double ms)
     {
-        const auto now = juce::Time::currentTimeMillis();
+        const auto now = chordengine::platform::currentTimeMillis();
         for (double elapsed = 0.0; elapsed < ms; elapsed += 100.0)
             runtime->tick(100.0, now);
     }
@@ -141,8 +141,6 @@ struct Rig
 
 int main()
 {
-    const juce::ScopedJuceInitialiser_GUI guiInitialiser;
-    juce::ignoreUnused(guiInitialiser);
 
     // 1. A new installation: the gate is decided at construction (no editor,
     //    no tick) and open for the trial; the clock waits for the first chord.
@@ -192,9 +190,9 @@ int main()
     {
         Rig rig(freshAuthFile("clamp"));
         rig.activity = true;
-        rig.runtime->tick(100.0, juce::Time::currentTimeMillis());
+        rig.runtime->tick(100.0, chordengine::platform::currentTimeMillis());
         const auto before = rig.trialMs();
-        rig.runtime->tick(10.0 * minuteMs, juce::Time::currentTimeMillis());
+        rig.runtime->tick(10.0 * minuteMs, chordengine::platform::currentTimeMillis());
         require(before - rig.trialMs() <= 1000.0, "clamp: a long gap costs at most one second");
         casePassed();
     }
@@ -228,11 +226,11 @@ int main()
         const auto file = freshAuthFile("recheck");
         writeMemberFile(file, 1.0);
         Rig rig(file);
-        rig.runtime->tick(100.0, juce::Time::currentTimeMillis()); // the first tick primes one check
+        rig.runtime->tick(100.0, chordengine::platform::currentTimeMillis()); // the first tick primes one check
         const auto primed = rig.auth->entitlementCalls;
         require(primed == 1 && rig.auth->lastToken == "member-token", "recheck: the first tick verifies the token");
 
-        const auto now = juce::Time::currentTimeMillis();
+        const auto now = chordengine::platform::currentTimeMillis();
         rig.runtime->requestRecheck();
         rig.runtime->tick(100.0, now);
         require(rig.auth->entitlementCalls == primed + 1, "recheck: a requested re-check runs at the next tick");
@@ -252,7 +250,7 @@ int main()
         const auto file = freshAuthFile("lapsed");
         writeMemberFile(file, 1.0);
         Rig rig(file);
-        rig.runtime->tick(100.0, juce::Time::currentTimeMillis());
+        rig.runtime->tick(100.0, chordengine::platform::currentTimeMillis());
         require(rig.auth->pending != nullptr, "lapsed: a check is in flight");
         rig.runtime->boundary().deliverEntitlementsReply(HttpReply { 200, lapsedAnswer(), true });
         require(!rig.licensed() && rig.gateOpen, "lapsed: an ended membership falls back to the trial");
@@ -266,13 +264,13 @@ int main()
 
         const auto usedTrial = freshAuthFile("lapsed-used");
         writeMemberFile(usedTrial, 1.0);
-        auto stored = juce::JSON::parse(usedTrial.loadFileAsString());
-        stored.getDynamicObject()->setProperty("trial_remaining_ms", 0);
-        stored.getDynamicObject()->setProperty("trial_expired", true);
-        usedTrial.replaceWithText(juce::JSON::toString(stored));
+        auto stored = chordengine::test::parseJson(chordengine::test::readText(usedTrial));
+        stored.set("trial_remaining_ms", 0);
+        stored.set("trial_expired", true);
+        chordengine::platform::writeFileAtomically(usedTrial, (stored).dump());
         Rig member(usedTrial);
         require(member.gateOpen, "lapsed: a member with a used trial plays");
-        member.runtime->tick(100.0, juce::Time::currentTimeMillis());
+        member.runtime->tick(100.0, chordengine::platform::currentTimeMillis());
         member.runtime->boundary().deliverEntitlementsReply(HttpReply { 200, lapsedAnswer(), true });
         require(!member.gateOpen, "lapsed: with the trial used, the ended membership closes the gate at once");
         casePassed();
@@ -299,7 +297,7 @@ int main()
         const auto file = freshAuthFile("other-instance");
         Rig rig(file);
         require(!rig.licensed(), "other instance: starts unlicensed");
-        juce::Thread::sleep(1100); // file times have one-second resolution on some volumes
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100)); // file times have one-second resolution on some volumes
         writeMemberFile(file, 0.0);
         rig.runtime->editorOpened();
         require(rig.licensed() && rig.gateOpen, "other instance: opening the editor loads the new sign-in");

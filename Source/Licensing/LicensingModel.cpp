@@ -4,56 +4,45 @@ namespace chordengine::licensing
 {
 namespace
 {
-juce::String propertyText(const juce::var& response, const char* name)
+std::string propertyText(const platform::Json& response, const char* name)
 {
-    if (response.isVoid() || response.isUndefined())
-        return {};
-    return response.getProperty(name, juce::var()).toString();
+    return varText(response[name]);
 }
 
-double propertyNumber(const juce::var& response, const char* name)
+double propertyNumber(const platform::Json& response, const char* name)
 {
-    if (response.isVoid() || response.isUndefined())
-        return 0.0;
-    return static_cast<double>(response.getProperty(name, juce::var()));
+    return varNumber(response[name]);
 }
 
-// A nested object of an answer ("license", "subscription", "device"), or an
-// empty var when the server did not send it.
-juce::var nestedObject(const juce::var& response, const char* name)
+// A nested object of an answer ("license", "subscription", "device"), or a
+// null value when the server did not send it.
+platform::Json nestedObject(const platform::Json& response, const char* name)
 {
-    if (response.isVoid() || response.isUndefined())
-        return {};
-
-    const auto value = response.getProperty(name, juce::var());
-    return value.isObject() ? value : juce::var();
+    const auto& value = response[name];
+    return value.isObject() ? value : platform::Json();
 }
 
-bool objectHasField(const juce::var& object, const char* name)
+bool objectHasField(const platform::Json& object, const char* name)
 {
-    if (object.isVoid() || object.isUndefined())
-        return false;
-
-    const auto value = object.getProperty(name, juce::var());
-    return !value.isVoid() && !value.isUndefined();
+    return object.isObject() && object.has(name) && !object[name].isNull();
 }
 
 // A boolean field, for DISPLAY facts. `fallback` is used when the server did
 // not send the field at all.
-bool propertyBool(const juce::var& object, const char* name, bool fallback)
+bool propertyBool(const platform::Json& object, const char* name, bool fallback)
 {
     if (!objectHasField(object, name))
         return fallback;
 
-    const auto value = object.getProperty(name, juce::var());
+    const auto& value = object[name];
     if (value.isBool())
-        return static_cast<bool>(value);
-    if (value.isInt() || value.isInt64() || value.isDouble())
-        return static_cast<double>(value) != 0.0;
+        return value.asBool();
+    if (value.isNumber())
+        return value.asDouble() != 0.0;
     if (value.isString())
     {
-        const auto text = value.toString().trim().toLowerCase();
-        return text == "true" || text == "1";
+        const auto lowered = text::toLower(text::trim(value.stringRef()));
+        return lowered == "true" || lowered == "1";
     }
 
     return fallback;
@@ -72,23 +61,20 @@ bool propertyBool(const juce::var& object, const char* name, bool fallback)
 // destroy a valid cached entitlement (and persist the loss), while granting
 // nothing in return - the grant boundary is already strict, since only a real
 // boolean `true` opens the gate.
-bool carriesEntitlementDecision(const juce::var& response)
+bool carriesEntitlementDecision(const platform::Json& response)
 {
-    if (response.isVoid() || response.isUndefined() || !response.isObject())
-        return false;
-
-    return response.getProperty("plugin_entitled", juce::var()).isBool();
+    return response.isObject() && response["plugin_entitled"].isBool();
 }
 
 // THE GATE, read STRICTLY: only a real JSON boolean `true` grants access. A
 // missing field, a string, a number or any other shape is NOT an entitlement,
 // so a malformed answer can never be turned into a licence.
-bool entitledFlag(const juce::var& response)
+bool entitledFlag(const platform::Json& response)
 {
     if (!carriesEntitlementDecision(response))
         return false;
 
-    return static_cast<bool>(response.getProperty("plugin_entitled", juce::var()));
+    return response["plugin_entitled"].asBool();
 }
 
 double elapsedDays(std::int64_t fromMs, std::int64_t toMs) noexcept
@@ -132,16 +118,16 @@ void LicensingModel::restoreTrial(double remainingMs, bool expired) noexcept
         snapshot_.trialExpired = true;
         return;
     }
-    snapshot_.trialMs = juce::jmin(remainingMs, trialTotalMs);
+    snapshot_.trialMs = std::min(remainingMs, trialTotalMs);
     snapshot_.trialExpired = false;
 }
 
 // ----------------------------------------------------------- account
-void LicensingModel::setToken(const juce::String& token, const juce::String& user)
+void LicensingModel::setToken(const std::string& token, const std::string& user)
 {
     token_ = token;
-    snapshot_.hasToken = token.isNotEmpty();
-    if (user.isNotEmpty())
+    snapshot_.hasToken = !token.empty();
+    if (!user.empty())
         snapshot_.user = user;
     persistenceDirty_ = true;
 }
@@ -153,18 +139,18 @@ void LicensingModel::resetEntitlement() noexcept
     snapshot_.licensed = false;
 }
 
-void LicensingModel::loadToken(const juce::String& token, const juce::String& user,
+void LicensingModel::loadToken(const std::string& token, const std::string& user,
                                const CachedEntitlement& cached, std::int64_t verifiedAtMs)
 {
     token_ = token;
-    snapshot_.hasToken = token.isNotEmpty();
+    snapshot_.hasToken = !token.empty();
     snapshot_.user = user;
     snapshot_.cached = cached;
     snapshot_.verifiedAtMs = verifiedAtMs;
 
     // A persisted token makes the session signed in; the first entitlement
     // check either confirms it or clears it through handle401().
-    snapshot_.phase = token.isNotEmpty() ? Phase::signedIn : Phase::signedOut;
+    snapshot_.phase = !token.empty() ? Phase::signedIn : Phase::signedOut;
     primed_ = false;
     persistenceDirty_ = false;
 }
@@ -178,7 +164,7 @@ bool LicensingModel::consumePersistenceDirty() noexcept
 
 void LicensingModel::applyCachedEntitlement(std::int64_t nowMs) noexcept
 {
-    if (token_.isEmpty() || !snapshot_.cached.entitled || snapshot_.verifiedAtMs <= 0)
+    if (token_.empty() || !snapshot_.cached.entitled || snapshot_.verifiedAtMs <= 0)
     {
         snapshot_.licensed = false;
         return;
@@ -204,8 +190,8 @@ void LicensingModel::applyCachedEntitlement(std::int64_t nowMs) noexcept
 
 void LicensingModel::handle401(std::int64_t nowMs)
 {
-    juce::ignoreUnused(nowMs);
-    const bool hadUser = token_.isNotEmpty();
+    (void) nowMs;
+    const bool hadUser = !token_.empty();
 
     token_.clear();
     deviceCode_.clear();
@@ -240,7 +226,7 @@ void LicensingModel::cancelLink()
     snapshot_.userCode.clear();
     snapshot_.verificationUrl.clear();
     deviceCode_.clear();
-    snapshot_.phase = token_.isNotEmpty() ? Phase::signedIn : Phase::signedOut;
+    snapshot_.phase = !token_.empty() ? Phase::signedIn : Phase::signedOut;
     snapshot_.message = "Link cancelled.";
 }
 
@@ -263,7 +249,7 @@ void LicensingModel::signInOrCancel()
 
 void LicensingModel::signOut()
 {
-    if (token_.isNotEmpty())
+    if (!token_.empty())
     {
         // The reference revokes server-side first, then clears every local
         // trace in one transition.
@@ -278,10 +264,10 @@ void LicensingModel::signOut()
     snapshot_.message = "Signed out of Music-Prod.";
 }
 
-void LicensingModel::onAuthStartReply(int status, const juce::var& response)
+void LicensingModel::onAuthStartReply(int status, const platform::Json& response)
 {
     const auto deviceCode = propertyText(response, "device_code");
-    if (status == 200 && deviceCode.isNotEmpty())
+    if (status == 200 && !deviceCode.empty())
     {
         deviceCode_ = deviceCode;
         snapshot_.userCode = propertyText(response, "user_code");
@@ -291,7 +277,7 @@ void LicensingModel::onAuthStartReply(int status, const juce::var& response)
         snapshot_.message = "Enter code " + uiText(snapshot_.userCode, "(see the Music-Prod page)")
             + " on the Music-Prod page that just opened.";
         snapshot_.verificationUrl = propertyText(response, "verification_url_complete");
-        if (snapshot_.verificationUrl.isEmpty())
+        if (snapshot_.verificationUrl.empty())
             snapshot_.verificationUrl = propertyText(response, "verification_url");
         return;
     }
@@ -301,7 +287,7 @@ void LicensingModel::onAuthStartReply(int status, const juce::var& response)
     snapshot_.message = "Could not reach Music-Prod. Check your connection and try again.";
 }
 
-void LicensingModel::onAuthPollReply(int status, const juce::var& response)
+void LicensingModel::onAuthPollReply(int status, const platform::Json& response)
 {
     const auto state = propertyText(response, "status");
 
@@ -313,10 +299,10 @@ void LicensingModel::onAuthPollReply(int status, const juce::var& response)
         deviceCode_.clear();
         snapshot_.phase = Phase::signedIn;
         setToken(propertyText(response, "token"), propertyText(response, "display_name"));
-        if (token_.isEmpty())
+        if (token_.empty())
             snapshot_.phase = Phase::signedOut;
         snapshot_.message = "Signed in to Music-Prod. Verifying your Music-Prod+ status...";
-        if (token_.isNotEmpty() && requestEntitlements)
+        if (!token_.empty() && requestEntitlements)
             requestEntitlements(token_);
         return;
     }
@@ -353,7 +339,7 @@ void LicensingModel::onAuthPollReply(int status, const juce::var& response)
     // on the next tick.
 }
 
-void LicensingModel::onEntitlementsReply(int status, const juce::var& response,
+void LicensingModel::onEntitlementsReply(int status, const platform::Json& response,
                                          std::int64_t nowMs)
 {
     if (status == 200 && carriesEntitlementDecision(response))
@@ -378,8 +364,8 @@ void LicensingModel::onEntitlementsReply(int status, const juce::var& response,
         // a subscription-covered product, which is how the flat shape was
         // meant.
         cached.licenseStatus = objectHasField(license, "status")
-            ? license.getProperty("status", juce::var()).toString()
-            : juce::String(licenseStatusNone);
+            ? varText(license["status"])
+            : std::string(licenseStatusNone);
         // These two are FACTS about the licence, independent of the gate: they
         // are what lets the UI say "your licence is fine, this computer is
         // simply not activated" instead of pretending the key is bad. Only
@@ -444,10 +430,10 @@ void LicensingModel::onEntitlementsReply(int status, const juce::var& response,
 }
 
 // ------------------------------------------------- licence activation
-void LicensingModel::activateLicense(const juce::String& licenseKey)
+void LicensingModel::activateLicense(const std::string& licenseKey)
 {
-    const auto key = licenseKey.trim();
-    if (key.isEmpty())
+    const auto key = text::trim(licenseKey);
+    if (key.empty())
     {
         snapshot_.message = "Enter your ChordEngine licence key first.";
         return;
@@ -456,7 +442,7 @@ void LicensingModel::activateLicense(const juce::String& licenseKey)
     // The endpoint takes the identity from the token, so there is nothing to
     // activate until the device is paired. Saying so is honest; inventing a
     // device would end the three-computer rule.
-    if (token_.isEmpty())
+    if (token_.empty())
     {
         snapshot_.message = "Sign in to Music-Prod first, then activate your ChordEngine licence key.";
         return;
@@ -468,7 +454,7 @@ void LicensingModel::activateLicense(const juce::String& licenseKey)
         requestLicenseActivation(key);
 }
 
-void LicensingModel::onActivateLicenseReply(int status, const juce::var& response,
+void LicensingModel::onActivateLicenseReply(int status, const platform::Json& response,
                                             std::int64_t nowMs)
 {
     snapshot_.activationPending = false;
@@ -493,15 +479,15 @@ void LicensingModel::onActivateLicenseReply(int status, const juce::var& respons
     // because it is not a verdict on the customer's key.
     if (objectHasField(response, "error"))
     {
-        const auto detail = response.getProperty("message", juce::var()).toString();
-        snapshot_.message = detail.isNotEmpty()
+        const auto detail = varText(response["message"]);
+        snapshot_.message = !detail.empty()
             ? detail
-            : juce::String("Your licence could not be activated. Nothing was changed.");
+            : std::string("Your licence could not be activated. Nothing was changed.");
         return;
     }
 
-    const auto verdict = response.getProperty("status", juce::var()).toString();
-    const auto detail = response.getProperty("message", juce::var()).toString();
+    const auto verdict = varText(response["status"]);
+    const auto detail = varText(response["message"]);
     const auto device = nestedObject(response, "device");
 
     if (verdict == "device_limit")
@@ -513,9 +499,9 @@ void LicensingModel::onActivateLicenseReply(int status, const juce::var& respons
         snapshot_.cached.deviceLimit = deviceActivationLimit;
         if (objectHasField(device, "limit"))
             snapshot_.cached.deviceLimit = static_cast<int>(propertyNumber(device, "limit"));
-        snapshot_.message = detail.isNotEmpty()
+        snapshot_.message = !detail.empty()
             ? detail
-            : juce::String("This licence is already active on the maximum number of computers."
+            : std::string("This licence is already active on the maximum number of computers."
                            " Deactivate one in your Music-Prod account, then try again.");
         persistenceDirty_ = true;
         return;
@@ -532,13 +518,13 @@ void LicensingModel::onActivateLicenseReply(int status, const juce::var& respons
         snapshot_.cached.licenseDeviceActive = false;
         snapshot_.cached.licenseEntitles = false;
         snapshot_.cached.licenseStatus = verdict == "invalid"
-            ? juce::String(licenseStatusNone)
+            ? std::string(licenseStatusNone)
             : verdict;
         snapshot_.cached.entitled = snapshot_.cached.subscriptionEntitles;
         snapshot_.licensed = snapshot_.cached.entitled && snapshot_.cached.subscriptionEntitles;
-        snapshot_.message = detail.isNotEmpty()
+        snapshot_.message = !detail.empty()
             ? detail
-            : juce::String("That ChordEngine licence key was not accepted.");
+            : std::string("That ChordEngine licence key was not accepted.");
         persistenceDirty_ = true;
         primed_ = false; // re-derive the answer from the server immediately
         return;
@@ -557,9 +543,9 @@ void LicensingModel::onActivateLicenseReply(int status, const juce::var& respons
         snapshot_.cached.devicesUsed = static_cast<int>(propertyNumber(device, "used"));
         if (objectHasField(device, "limit"))
             snapshot_.cached.deviceLimit = static_cast<int>(propertyNumber(device, "limit"));
-        snapshot_.message = detail.isNotEmpty()
+        snapshot_.message = !detail.empty()
             ? detail
-            : juce::String("Licence activated on this computer.");
+            : std::string("Licence activated on this computer.");
         persistenceDirty_ = true;
         primed_ = false; // verify with the server at once
         return;
@@ -567,9 +553,9 @@ void LicensingModel::onActivateLicenseReply(int status, const juce::var& respons
 
     // A 200 whose `ok` is false without a verdict we know: report what the
     // server said and change nothing.
-    snapshot_.message = detail.isNotEmpty()
+    snapshot_.message = !detail.empty()
         ? detail
-        : juce::String("Your licence was not activated. Nothing was changed.");
+        : std::string("Your licence was not activated. Nothing was changed.");
 }
 
 void LicensingModel::tick()
@@ -577,7 +563,7 @@ void LicensingModel::tick()
     if (!primed_)
     {
         primed_ = true;
-        if (token_.isNotEmpty() && requestEntitlements)
+        if (!token_.empty() && requestEntitlements)
             requestEntitlements(token_);
         return;
     }
@@ -585,7 +571,7 @@ void LicensingModel::tick()
     if (snapshot_.polling)
     {
         ++pollTickCounter_;
-        if (pollTickCounter_ >= authPollTicks && requestLinkPoll && deviceCode_.isNotEmpty())
+        if (pollTickCounter_ >= authPollTicks && requestLinkPoll && !deviceCode_.empty())
         {
             pollTickCounter_ = 0;
             requestLinkPoll(deviceCode_);
@@ -593,7 +579,7 @@ void LicensingModel::tick()
         return;
     }
 
-    if (token_.isNotEmpty())
+    if (!token_.empty())
     {
         ++verifyTickCounter_;
         if (verifyTickCounter_ >= authVerifyTicks)
@@ -607,7 +593,7 @@ void LicensingModel::tick()
 
 void LicensingModel::requestVerificationNow()
 {
-    if (token_.isEmpty() || snapshot_.polling || !requestEntitlements)
+    if (token_.empty() || snapshot_.polling || !requestEntitlements)
         return;
     primed_ = true;
     verifyTickCounter_ = 0;
@@ -624,18 +610,18 @@ void LicensingModel::checkForUpdates()
         requestUpdateCheck();
 }
 
-void LicensingModel::onUpdateResult(bool available, const juce::String& latestVersion,
-                                    const juce::String& status)
+void LicensingModel::onUpdateResult(bool available, const std::string& latestVersion,
+                                    const std::string& status)
 {
     // The reference never fakes a latest version: when the update service
     // has no answer the Latest row keeps its "-" placeholder and the
     // Status row carries the real, honest result text.
-    snapshot_.latestVersion = available ? latestVersion : juce::String();
+    snapshot_.latestVersion = available ? latestVersion : std::string();
     snapshot_.updateStatus = status;
     snapshot_.updateState = UpdateState::checked;
 }
 
-void LicensingModel::onUpdateFailed(const juce::String& status)
+void LicensingModel::onUpdateFailed(const std::string& status)
 {
     snapshot_.latestVersion.clear();
     snapshot_.updateStatus = status;

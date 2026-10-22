@@ -2,7 +2,7 @@
 
 #include "LicensingBoundary.h"
 
-#include <juce_events/juce_events.h>
+#include "Platform/Platform.h"
 
 #include <atomic>
 #include <functional>
@@ -30,13 +30,13 @@ namespace chordengine::licensing
 // Everything here runs on the message thread except requestRecheck(),
 // which only sets a flag and may be called from any thread.
 // =====================================================================
-class LicensingRuntime final : private juce::Timer
+class LicensingRuntime final
 {
 public:
     // A null update service means the shipped MusicProdUpdateService.
     LicensingRuntime(std::unique_ptr<AuthService> auth, std::unique_ptr<UpdateService> update,
-                     juce::File authFile);
-    ~LicensingRuntime() override;
+                     std::filesystem::path authFile);
+    ~LicensingRuntime();
 
     // The gate the audio path reads (open == chord generation allowed). The
     // sink is called at once and then whenever the decision changes.
@@ -64,7 +64,7 @@ public:
     static constexpr double recheckIntervalMs = 60.0 * 1000.0;
 
 private:
-    void timerCallback() override;
+    void timerCallback();
 
     std::unique_ptr<AuthService> auth_;
     std::unique_ptr<UpdateService> update_;
@@ -73,7 +73,6 @@ private:
     std::atomic<bool> recheckRequested_ { false };
     std::int64_t lastRecheckMs_ = 0;
     double lastTimerMs_ = 0.0;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LicensingRuntime)
+    platform::RepeatingTimer timer_;
 };
 } // namespace chordengine::licensing

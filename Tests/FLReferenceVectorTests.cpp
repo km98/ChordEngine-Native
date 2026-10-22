@@ -2,7 +2,7 @@
 #include "Core/ScaleSystem.h"
 #include "MIDI/MidiNoteTracker.h"
 
-#include <juce_core/juce_core.h>
+#include "TestSupport.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -10,52 +10,29 @@
 #include <string>
 #include <vector>
 
+using namespace chordengine::test;
+using chordengine::platform::Json;
+
 namespace
 {
-[[noreturn]] void fail(const juce::String& message)
+int integerField(const Json& object, const std::string& key)
 {
-    std::cerr << "FAIL: " << message << '\n';
-    std::exit(EXIT_FAILURE);
+    return chordengine::test::integer(field(object, key), key);
 }
 
-void require(bool condition, const juce::String& message)
+std::string text(const Json& object, const std::string& key)
 {
-    if (!condition)
-        fail(message);
+    return field(object, key).asString();
 }
 
-juce::var field(const juce::var& object, const juce::Identifier& key)
+std::vector<int> integers(const Json& value, const std::string& name)
 {
-    auto* dynamicObject = object.getDynamicObject();
-    if (dynamicObject == nullptr)
-        fail("Expected JSON object while reading " + key.toString());
-    const auto* value = dynamicObject->getProperties().getVarPointer(key);
-    if (value == nullptr)
-        fail("Missing JSON field: " + key.toString());
-    return *value;
-}
-
-int integer(const juce::var& object, const juce::Identifier& key)
-{
-    const auto value = field(object, key);
-    require(value.isInt() || value.isInt64(), "Expected integer field " + key.toString());
-    return static_cast<int>(value);
-}
-
-std::string text(const juce::var& object, const juce::Identifier& key)
-{
-    return field(object, key).toString().toStdString();
-}
-
-std::vector<int> integers(const juce::var& value, const juce::String& name)
-{
-    const auto* array = value.getArray();
-    require(array != nullptr, "Expected integer array: " + name);
+    require(value.isArray(), "Expected integer array: " + name);
     std::vector<int> result;
-    for (const auto& item : *array)
+    for (const auto& item : value.items())
     {
-        require(item.isInt() || item.isInt64(), "Expected integer in " + name);
-        result.push_back(static_cast<int>(item));
+        require(item.isInteger(), "Expected integer in " + name);
+        result.push_back(static_cast<int>(item.asInt()));
     }
     return result;
 }
@@ -66,49 +43,49 @@ chordengine::core::TransposeTarget transposeTarget(std::string_view name)
     if (name == "WHOLE") return TransposeTarget::whole;
     if (name == "LOWEST") return TransposeTarget::lowest;
     if (name == "HIGHEST") return TransposeTarget::highest;
-    fail("Unknown transpose target in fixture: " + juce::String(name.data()));
+    fail("Unknown transpose target in fixture: " + std::string(name));
 }
 
 chordengine::midi::NoteEvent inputEvent(chordengine::midi::NoteEvent::Kind kind,
-                                        const juce::var& input)
+                                        const Json& input)
 {
     chordengine::midi::NoteEvent event;
     event.kind = kind;
-    event.channel = static_cast<std::uint8_t>(integer(input, "channel"));
-    event.note = static_cast<std::uint8_t>(integer(input, "note"));
-    event.velocity = static_cast<std::uint8_t>(integer(input, "velocity"));
+    event.channel = static_cast<std::uint8_t>(integerField(input, "channel"));
+    event.note = static_cast<std::uint8_t>(integerField(input, "note"));
+    event.velocity = static_cast<std::uint8_t>(integerField(input, "velocity"));
     return event;
 }
 
-void checkPitches(const chordengine::core::CoreResult& result, const juce::var& expected,
+void checkPitches(const chordengine::core::CoreResult& result, const Json& expected,
                   std::uint8_t channel, chordengine::midi::NoteEvent::Kind kind,
-                  std::uint8_t velocity, int sampleOffset, const juce::String& id)
+                  std::uint8_t velocity, int sampleOffset, const std::string& id)
 {
     const auto pitches = integers(expected, id);
     require(result.eventCount == pitches.size(), id + ": event count mismatch: expected "
-            + juce::String(static_cast<int>(pitches.size())) + ", actual "
-            + juce::String(static_cast<int>(result.eventCount)));
+            + str(static_cast<int>(pitches.size())) + ", actual "
+            + str(static_cast<int>(result.eventCount)));
     for (std::size_t index = 0; index < pitches.size(); ++index)
     {
         const auto& event = result.events[index];
         require(event.kind == kind && event.note == pitches[index],
-                id + ": pitch/order mismatch at event " + juce::String(static_cast<int>(index)));
+                id + ": pitch/order mismatch at event " + str(static_cast<int>(index)));
         require(event.channel == channel, id + ": channel mismatch at event "
-                + juce::String(static_cast<int>(index)));
+                + str(static_cast<int>(index)));
         require(event.velocity == velocity, id + ": velocity mismatch at event "
-                + juce::String(static_cast<int>(index)));
+                + str(static_cast<int>(index)));
         require(event.sampleOffset == sampleOffset, id + ": sample offset mismatch at event "
-                + juce::String(static_cast<int>(index)));
+                + str(static_cast<int>(index)));
     }
 }
 
-bool configure(chordengine::core::ChordEngineCore& core, const juce::var& item)
+bool configure(chordengine::core::ChordEngineCore& core, const Json& item)
 {
     using namespace chordengine::core;
-    const auto input = field(item, "input");
-    const auto transpose = field(item, "transpose");
-    const auto presetIndex = integer(input, "presetIndex");
-    const auto scaleIndex = integer(input, "scaleIndex");
+    const auto& input = field(item, "input");
+    const auto& transpose = field(item, "transpose");
+    const auto presetIndex = integerField(input, "presetIndex");
+    const auto scaleIndex = integerField(input, "scaleIndex");
     if (presetIndex < 0 || presetIndex >= static_cast<int>(ChordPresetSystem::presetCount)
         || scaleIndex < 0 || scaleIndex >= static_cast<int>(ScaleSystem::scaleCount))
         return false;
@@ -116,64 +93,62 @@ bool configure(chordengine::core::ChordEngineCore& core, const juce::var& item)
     CoreConfiguration config;
     config.preset = static_cast<ChordPresetId>(presetIndex);
     config.scale = static_cast<ScaleId>(scaleIndex);
-    config.keyIndex = integer(input, "keyIndex");
+    config.keyIndex = integerField(input, "keyIndex");
     config.transpose.target = transposeTarget(text(transpose, "target"));
-    config.transpose.octaveSteps = integer(transpose, "octaveSteps");
+    config.transpose.octaveSteps = integerField(transpose, "octaveSteps");
     const auto mode = text(item, "velocityMode");
     if (mode == "dynamic") config.velocityMode = VelocityMode::dynamic;
     else if (mode == "maximum") config.velocityMode = VelocityMode::maximum;
     else if (mode == "fixed") config.velocityMode = VelocityMode::fixed;
     else return false;
-    config.fixedVelocity = static_cast<std::uint8_t>(integer(item, "fixedVelocity"));
+    config.fixedVelocity = static_cast<std::uint8_t>(integerField(item, "fixedVelocity"));
     return core.setConfiguration(config);
 }
 }
 
 int main()
 {
-    const juce::File fixtureFile(CHORDENGINE_FL_GOLDEN_FILE);
-    require(fixtureFile.existsAsFile(), "FLReferenceVectors.json exists");
-    const auto fixture = juce::JSON::parse(fixtureFile);
+    const auto fixture = parseJson(readText(CHORDENGINE_FL_GOLDEN_FILE));
     require(fixture.isObject(), "FLReferenceVectors.json parses as an object");
-    require(field(fixture, "hostObserved") == juce::var(false),
+    require(field(fixture, "hostObserved").isBool() && !field(fixture, "hostObserved").asBool(),
             "fixture remains classified as source-derived, not host-observed");
-    const auto casesVar = field(fixture, "cases");
-    const auto* cases = casesVar.getArray();
+    const auto& casesVar = field(fixture, "cases");
+    const auto* cases = casesVar.isArray() ? &casesVar.items() : nullptr;
     require(cases != nullptr && cases->size() == 38, "38 source-derived cases are present");
 
     std::size_t matched = 0;
     std::size_t unresolved = 0;
-    const auto assumptions = field(fixture, "vectorScenarioAssumption").toString();
-    const bool isolatedVoiceVectors = assumptions.contains("single isolated trigger")
-        && assumptions.contains("sustain is off");
+    const auto assumptions = field(fixture, "vectorScenarioAssumption").asString();
+    const bool isolatedVoiceVectors = assumptions.find("single isolated trigger") != std::string::npos
+        && assumptions.find("sustain is off") != std::string::npos;
     if (!isolatedVoiceVectors)
         unresolved = static_cast<std::size_t>(cases->size());
     for (const auto& item : *cases)
     {
         const auto id = text(item, "id");
-        const auto idText = juce::String(id);
+        const auto& idText = id;
         if (!isolatedVoiceVectors)
         {
             std::cout << "UNRESOLVED " << id << ": fixture voice/sustain assumptions are not explicit\\n";
             continue;
         }
-        const auto input = field(item, "input");
-        const auto expected = field(item, "expected");
+        const auto& input = field(item, "input");
+        const auto& expected = field(item, "expected");
         chordengine::core::ChordEngineCore core;
         require(configure(core, item), idText + ": configuration rejected");
 
         const auto on = core.process(inputEvent(chordengine::midi::NoteEvent::Kind::noteOn, input));
         require(on.supported && on.suppressInput, idText + ": valid MIDI note-on not suppressed");
         require(!on.unresolved, idText + ": note-on unexpectedly unresolved");
-        const auto expectedNotes = field(expected, "notes");
+        const auto& expectedNotes = field(expected, "notes");
         const auto expectedPitchList = integers(expectedNotes, idText + " expected notes");
-        const auto expectedVelocity = field(expected, "velocity");
-        const auto velocity = expectedVelocity.isVoid()
-            ? std::uint8_t { 0 } : static_cast<std::uint8_t>(static_cast<int>(expectedVelocity));
+        const auto& expectedVelocity = field(expected, "velocity");
+        const auto velocity = expectedVelocity.isNull()
+            ? std::uint8_t { 0 } : static_cast<std::uint8_t>(expectedVelocity.asInt());
         if (expectedPitchList.empty())
-            require(expectedVelocity.isVoid(), idText + ": empty chord should not define velocity");
+            require(expectedVelocity.isNull(), idText + ": empty chord should not define velocity");
         checkPitches(on, expectedNotes,
-            static_cast<std::uint8_t>(integer(expected, "outputChannel")),
+            static_cast<std::uint8_t>(integerField(expected, "outputChannel")),
             chordengine::midi::NoteEvent::Kind::noteOn, velocity,
             0, idText + " note-ons");
 
@@ -181,7 +156,7 @@ int main()
         require(off.supported && off.suppressInput && !off.unresolved,
                 idText + ": corresponding note-off was not handled deterministically");
         checkPitches(off, field(expected, "noteOffs"),
-            static_cast<std::uint8_t>(integer(expected, "outputChannel")),
+            static_cast<std::uint8_t>(integerField(expected, "outputChannel")),
             chordengine::midi::NoteEvent::Kind::noteOff, 0, 0, idText + " note-offs");
         ++matched;
     }

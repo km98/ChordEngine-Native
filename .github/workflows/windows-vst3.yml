@@ -2,7 +2,7 @@ name: Windows VST3
 
 on:
   push:
-    branches: [main]
+    branches: [main, juce-free]
   pull_request:
   workflow_dispatch:
 
@@ -19,8 +19,8 @@ jobs:
       - name: Configure (VST3 and tests)
         run: cmake -S . -B Build/Windows -A x64 -DBUILD_TESTING=ON
 
-      - name: Build VST3 target
-        run: cmake --build Build/Windows --config Release --target ChordEngineVST3_VST3
+      - name: Build the VST3
+        run: cmake --build Build/Windows --config Release --target ChordEngineVST3
 
       - name: Build all targets
         run: cmake --build Build/Windows --config Release
@@ -28,10 +28,10 @@ jobs:
       - name: Run CTest
         run: ctest --test-dir Build/Windows -C Release --output-on-failure
 
-      - name: Archive VST3 bundle (only when all tests pass)
+      - name: Archive the VST3 bundle (only when all tests pass)
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ChordEngine-VST3-windows
-          path: Build/Windows/ChordEngineVST3_artefacts/Release/VST3/ChordEngine.vst3
+          path: Build/Windows/Bundles/ChordEngine.vst3
           if-no-files-found: error

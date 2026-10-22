@@ -2,8 +2,9 @@
 # ============================================================================
 # PackageMacDMG.sh
 #
-# Builds the customer-facing macOS installer DMG for the ChordEngine native
-# (JUCE) build. It carries every plugin bundle in a single installer:
+# Builds the customer-facing macOS installer DMG for ChordEngine (the native
+# 0.6 build on Apple's AudioUnitSDK and Steinberg's VST 3 SDK). It carries
+# every plugin bundle in a single installer:
 #
 #     /Library/Audio/Plug-Ins/Components/ChordEngine.component            (AU MIDI FX, aumi)
 #     /Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component (AU instrument, aumu)
@@ -16,8 +17,12 @@
 #   1. stage the bundles under a pkg root with 0755 directories
 #   2. codesign both bundles with the Developer ID APPLICATION identity,
 #      hardened runtime + secure timestamp (required for notarization)
-#   3. pkgbuild with --ownership recommended, gate the recorded modes in the
-#      BOM (a previous 0700 leak made the VST3 invisible to DAWs)
+#   3. pkgbuild with --ownership recommended and a component plist that makes
+#      every bundle NON-relocatable (BundleIsRelocatable=false), so the macOS
+#      Installer never redirects an update into an older copy of the same
+#      bundle id elsewhere; gate the recorded modes in the BOM (a previous
+#      0700 leak made the VST3 invisible to DAWs) and the absence of any
+#      relocation in PackageInfo
 #   4. productsign with the Developer ID INSTALLER identity
 #   5. notarytool submit --wait, then staple the ticket
 #   6. wrap the stapled .pkg plus README.txt in a compressed DMG
@@ -25,10 +30,15 @@
 #
 # Nothing in the build tree is modified: the bundles are copied with `ditto`
 # into a temporary staging root and signed there. Build outputs keep the
-# ad-hoc signature the CMake/Xcode build produces.
+# ad-hoc signature the CMake build produces.
 #
 # Usage:
 #   ./Tools/PackageMacDMG.sh [--skip-notarize] [--force] [--version X.Y.Z]
+#   ./Tools/PackageMacDMG.sh --unsigned [--force]
+#
+# --unsigned builds the same package and DMG WITHOUT any signing or
+# notarization (no identity is touched) and names them *-UNSIGNED.*, to check
+# the installer's structure; such files are never for distribution.
 #
 # Exit status is non-zero on any gate failure, and no artifact is published
 # (copied into the output directory) unless every gate before it passed.
@@ -40,12 +50,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------------------------------------------- parameters
-BUILD_DIR="${CHORDENGINE_BUILD_DIR:-$REPO_ROOT/Build/macOS-JUCE9}"
+BUILD_DIR="${CHORDENGINE_BUILD_DIR:-$REPO_ROOT/Build/native}"
 OUT_DIR="${CHORDENGINE_DIST_DIR:-$REPO_ROOT/Build/ReleaseArtifacts}"
 
-AU_SRC="$BUILD_DIR/ChordEngineAU_artefacts/Release/AU/ChordEngine.component"
-VST3_SRC="$BUILD_DIR/ChordEngineVST3_artefacts/Release/VST3/ChordEngine.vst3"
-INST_SRC="$BUILD_DIR/ChordEngineInstrumentAU_artefacts/Release/AU/ChordEngine Instrument.component"
+AU_SRC="$BUILD_DIR/Bundles/ChordEngine.component"
+VST3_SRC="$BUILD_DIR/Bundles/ChordEngine.vst3"
+INST_SRC="$BUILD_DIR/Bundles/ChordEngine Instrument.component"
 INST_BIN="Contents/MacOS/ChordEngine Instrument"
 
 PRODUCT="ChordEngine"
@@ -53,7 +63,7 @@ PRODUCT="ChordEngine"
 # built with - the payload identity gate below refuses a mismatch - so it
 # tracks CHORDENGINE_VERSION in CMakeLists.txt. Override per release with
 # --version, and never reuse a version whose DMG/PKG already exists here.
-VERSION="0.5.1"
+VERSION="0.6.0"
 PKG_IDENTIFIER="com.musicprod.chordengine.pkg"
 
 APP_ID="Developer ID Application: Martin Kadziolka (3A4R5EKM7V)"
@@ -62,6 +72,7 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-ChordEngineFL-notary}"
 
 DO_NOTARIZE=1
 FORCE=0
+UNSIGNED=0
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
 step() { echo; echo "== $* =="; }
@@ -82,6 +93,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --skip-notarize) DO_NOTARIZE=0; shift ;;
         --force)         FORCE=1; shift ;;
+        --unsigned)      UNSIGNED=1; DO_NOTARIZE=0; shift ;;
         --version)       VERSION="${2:?--version needs a value}"; shift 2 ;;
         -h|--help)       usage 0 ;;
         *) die "unknown argument: $1 (try --help)" ;;
@@ -89,8 +101,10 @@ while [ $# -gt 0 ]; do
 done
 
 VOL_NAME="$PRODUCT $VERSION"
-PKG_NAME="$PRODUCT-$VERSION-macOS.pkg"
-DMG_NAME="$PRODUCT-$VERSION-macOS.dmg"
+SUFFIX=""
+[ "$UNSIGNED" = "1" ] && SUFFIX="-UNSIGNED"
+PKG_NAME="$PRODUCT-$VERSION-macOS$SUFFIX.pkg"
+DMG_NAME="$PRODUCT-$VERSION-macOS$SUFFIX.dmg"
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid version: $VERSION"
 
@@ -119,22 +133,23 @@ AU_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
             "$AU_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
 AU_BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$AU_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
-# moduleinfo.json is not strict JSON (JUCE emits trailing commas), so pull the
-# first top-level "Version" textually rather than with a JSON parser.
-VST3_VER="$(sed -n 's/^[[:space:]]*"Version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-            "$VST3_SRC/Contents/Resources/moduleinfo.json" 2>/dev/null | head -1)"
-[ -n "$VST3_VER" ] || VST3_VER='?'
+VST3_VER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["Version"])' \
+            "$VST3_SRC/Contents/Resources/moduleinfo.json" 2>/dev/null || echo '?')"
+VST3_BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$VST3_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
 INST_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
             "$INST_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
 INST_BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$INST_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
 echo "AU   version=$AU_VER bundle-id=$AU_BID"
 echo "Inst version=$INST_VER bundle-id=$INST_BID"
-echo "VST3 version=$VST3_VER"
+echo "VST3 version=$VST3_VER bundle-id=$VST3_BID"
 [ "$AU_VER" = "$VERSION" ]   || die "AU version $AU_VER != requested $VERSION (rebuild first)"
 [ "$VST3_VER" = "$VERSION" ] || die "VST3 version $VST3_VER != requested $VERSION (rebuild first)"
 [ "$INST_VER" = "$VERSION" ] || die "Instrument AU version $INST_VER != requested $VERSION (rebuild first)"
-[ "$INST_BID" = "com.musicprod.chordengine.instrument" ] || die "unexpected Instrument AU bundle id: $INST_BID"
+[ "$AU_BID" = "com.musicprod.chordengine.au" ] || die "unexpected AU bundle id: $AU_BID"
+[ "$INST_BID" = "com.musicprod.chordengine.instrument.au" ] || die "unexpected Instrument AU bundle id: $INST_BID"
+[ "$VST3_BID" = "com.musicprod.chordengine.vst3" ] || die "unexpected VST3 bundle id: $VST3_BID"
 
 for bin in "$AU_SRC/Contents/MacOS/ChordEngine" "$VST3_SRC/Contents/MacOS/ChordEngine" \
            "$INST_SRC/$INST_BIN"; do
@@ -146,6 +161,7 @@ for bin in "$AU_SRC/Contents/MacOS/ChordEngine" "$VST3_SRC/Contents/MacOS/ChordE
     esac
 done
 
+if [ "$UNSIGNED" = "0" ]; then
 echo "-- signing identities --"
 # Note: every gate below avoids `... | grep -q` because `set -o pipefail` turns
 # grep's early exit into a spurious pipeline failure.
@@ -160,6 +176,7 @@ if [ "$DO_NOTARIZE" = "1" ]; then
     xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
         || die "notarytool profile '$NOTARY_PROFILE' is not usable (store credentials first)"
     echo "notary profile '$NOTARY_PROFILE' authenticates"
+fi
 fi
 
 MOUNT_POINT=""
@@ -193,6 +210,7 @@ for d in "$PKGROOT" "$PKGROOT/Library" "$PKGROOT/Library/Audio" \
 done
 
 # -------------------------------------------------------------------- sign
+if [ "$UNSIGNED" = "0" ]; then
 step "Sign bundles (Developer ID Application, hardened runtime, timestamp)"
 SIGNED_BUNDLES=(
     "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine.component"
@@ -224,6 +242,7 @@ for bundle in "${SIGNED_BUNDLES[@]}"; do
         || die "unexpected TeamIdentifier on $bundle"
 done
 echo "  all bundles: Developer ID Application signature + hardened runtime verified"
+fi
 
 # Verify the signed bundles still depend only on Apple libraries, so hardened
 # runtime library validation cannot block loading in a host.
@@ -239,9 +258,24 @@ done
 echo "  dependencies are Apple-only (library validation safe)"
 
 # ----------------------------------------------------------------- pkgbuild
-step "pkgbuild"
+step "pkgbuild (non-relocatable bundles)"
+# Every bundle is installed exactly at its path: without this, the macOS
+# Installer "relocates" an update into wherever it last saw that bundle id.
+COMPONENT_PLIST="$TMP/components.plist"
+pkgbuild --analyze --root "$PKGROOT" "$COMPONENT_PLIST" >/dev/null
+count="$(/usr/libexec/PlistBuddy -c 'Print' "$COMPONENT_PLIST" | grep -c 'RootRelativeBundlePath')"
+[ "$count" -ge 3 ] || die "component analysis found $count bundles, expected 3"
+for ((i = 0; i < count; i++)); do
+    # Newer pkgbuild omits the key (and then relocates); state it explicitly.
+    /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsRelocatable" "$COMPONENT_PLIST" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" "$COMPONENT_PLIST"
+    [ "$(/usr/libexec/PlistBuddy -c "Print :$i:BundleIsRelocatable" "$COMPONENT_PLIST")" = "false" ] \
+        || die "could not mark bundle $i non-relocatable"
+done
+echo "  $count bundles marked BundleIsRelocatable=false"
 UNSIGNED_PKG="$TMP/unsigned.pkg"
 pkgbuild --root "$PKGROOT" \
+         --component-plist "$COMPONENT_PLIST" \
          --identifier "$PKG_IDENTIFIER" \
          --version "$VERSION" \
          --install-location "/" \
@@ -280,17 +314,25 @@ PKGINFO_ID="$(printf '%s\n' "$PKGINFO_LINE" | sed -n 's/.* identifier="\([^"]*\)
 PKGINFO_VER="$(printf '%s\n' "$PKGINFO_LINE" | sed -n 's/.* version="\([^"]*\)".*/\1/p')"
 [ "$PKGINFO_ID" = "$PKG_IDENTIFIER" ] || die "PackageInfo identifier mismatch: $PKGINFO_ID"
 [ "$PKGINFO_VER" = "$VERSION" ]       || die "PackageInfo version mismatch: $PKGINFO_VER"
-echo "  staging parents archived 40755 / uid 0 / gid wheel"
+# A relocatable bundle shows up as <relocate><bundle id=.../></relocate>;
+# a package that relocates nothing carries an empty <relocate/>.
+grep -q '<relocate/>' "$CHECK/PackageInfo" || die "PackageInfo still relocates a bundle"
+echo "  staging parents archived 40755 / uid 0 / gid wheel; no bundle is relocatable"
 echo "  PackageInfo identifier=$PKGINFO_ID version=$PKGINFO_VER"
 
-step "productsign (Developer ID Installer)"
 SIGNED_PKG="$TMP/$PKG_NAME"
+if [ "$UNSIGNED" = "1" ]; then
+cp "$UNSIGNED_PKG" "$SIGNED_PKG"
+echo "  --unsigned: the package is NOT signed (structure check only)"
+else
+step "productsign (Developer ID Installer)"
 productsign --sign "$INSTALLER_ID" "$UNSIGNED_PKG" "$SIGNED_PKG"
 PKG_SIG="$(pkgutil --check-signature "$SIGNED_PKG" 2>&1 || true)"
 printf '%s\n' "$PKG_SIG"
 [[ "$PKG_SIG" == *"signed by a developer certificate issued by Apple"* ]] \
     || die "installer package is not signed by an Apple-issued developer certificate"
 echo "  installer package signature OK"
+fi
 
 # --------------------------------------------------------------- notarize
 if [ "$DO_NOTARIZE" = "1" ]; then
@@ -315,6 +357,8 @@ mkdir -p "$DMGROOT"
 cp "$SIGNED_PKG" "$DMGROOT/$PKG_NAME"
 if [ "$DO_NOTARIZE" = "1" ]; then
     PACKAGE_STATUS="Signed and notarized by Music-Prod."
+elif [ "$UNSIGNED" = "1" ]; then
+    PACKAGE_STATUS="UNSIGNED structure check - not for distribution."
 else
     PACKAGE_STATUS="Signed by Music-Prod; not notarized (release candidate only)."
 fi
@@ -338,6 +382,8 @@ Universal binary: Apple Silicon (arm64) + Intel (x86_64).
 $PACKAGE_STATUS
 EOF
 
+cp "$REPO_ROOT/Docs/THIRD_PARTY_NOTICES.txt" "$DMGROOT/THIRD_PARTY_NOTICES.txt"
+
 UNSIGNED_DMG="$TMP/$DMG_NAME"
 hdiutil create -volname "$VOL_NAME" \
                -srcfolder "$DMGROOT" \
@@ -346,6 +392,7 @@ hdiutil create -volname "$VOL_NAME" \
                -ov \
                "$UNSIGNED_DMG"
 
+if [ "$UNSIGNED" = "0" ]; then
 step "Sign DMG (Developer ID Application, secure timestamp)"
 codesign --force --timestamp --sign "$APP_ID" "$UNSIGNED_DMG"
 codesign --verify --verbose=2 "$UNSIGNED_DMG" 2>&1 \
@@ -356,6 +403,7 @@ DMG_SIG_INFO="$(codesign -dv --verbose=4 "$UNSIGNED_DMG" 2>&1 || true)"
 [[ "$DMG_SIG_INFO" == *"TeamIdentifier=3A4R5EKM7V"* ]] \
     || die "unexpected TeamIdentifier on DMG"
 echo "  DMG Developer ID Application signature verified"
+fi
 
 if [ "$DO_NOTARIZE" = "1" ]; then
     step "Notarize DMG"
@@ -393,6 +441,7 @@ trap 'hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 ls -la "$MOUNT_POINT"
 [ -f "$MOUNT_POINT/$PKG_NAME" ] || die "DMG does not contain $PKG_NAME"
 [ -f "$MOUNT_POINT/README.txt" ] || die "DMG does not contain README.txt"
+[ -f "$MOUNT_POINT/THIRD_PARTY_NOTICES.txt" ] || die "DMG does not contain THIRD_PARTY_NOTICES.txt"
 
 MOUNTED_PKG="$MOUNT_POINT/$PKG_NAME"
 mounted_sha="$(sha256of "$MOUNTED_PKG")"
@@ -435,6 +484,8 @@ echo "sha256   : $(sha256of "$OUT_DIR/$PKG_NAME")"
 echo
 if [ "$DO_NOTARIZE" = "1" ]; then
     echo "SIGNED + NOTARIZED DMG OK"
+elif [ "$UNSIGNED" = "1" ]; then
+    echo "UNSIGNED STRUCTURE CHECK OK (not for distribution)"
 else
     echo "SIGNED DMG OK (NOT NOTARIZED - release candidate only)"
 fi

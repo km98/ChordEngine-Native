@@ -2,6 +2,9 @@
 
 #include "LicensingModel.h"
 #include "LicensingServices.h"
+#include "Platform/Platform.h"
+
+#include <filesystem>
 
 #include <functional>
 
@@ -26,7 +29,7 @@ namespace chordengine::licensing
 class LicensingBoundary final
 {
 public:
-    LicensingBoundary(AuthService& auth, UpdateService& update, juce::File authFile);
+    LicensingBoundary(AuthService& auth, UpdateService& update, std::filesystem::path authFile);
     ~LicensingBoundary();
 
     // Restores the persisted Music-Prod token, this device's id and the last
@@ -64,21 +67,21 @@ public:
     // ACTIVATE: the customer's ChordEngine licence key, typed on the INFO
     // page. The key is forwarded and then dropped; only the server's own
     // entitlement answer decides what is kept.
-    void activateLicenseKey(const juce::String& licenseKey);
+    void activateLicenseKey(const std::string& licenseKey);
 
     // The URL the device-code flow asked us to open, consumed once.
-    bool consumeVerificationUrl(juce::String& url);
+    bool consumeVerificationUrl(std::string& url);
 
     const Snapshot& snapshot() const noexcept { return model_.snapshot(); }
     // The account token for the pack store's download request, which the
     // store validates exactly like the entitlement check. Never displayed,
     // logged or persisted by the caller.
-    const juce::String& storeToken() const noexcept { return model_.token(); }
+    const std::string& storeToken() const noexcept { return model_.token(); }
     bool expiredGateActive() const noexcept { return model_.expiredGateActive(); }
 
     // This installation's opaque device id (never a hardware identifier).
     // Exposed for display and for tests; it grants nothing on its own.
-    const juce::String& deviceId() const noexcept { return deviceId_; }
+    const std::string& deviceId() const noexcept { return deviceId_; }
 
     // Test seam: drives the model directly for a mock reply.
     void deliverAuthStartReply(const HttpReply& reply);
@@ -91,26 +94,25 @@ private:
     void saveAuthFile();
     void loadAuthFile();
     std::int64_t nowMs() const noexcept;
-    juce::String deviceLabel() const;
+    std::string deviceLabel() const;
 
     LicensingModel model_;
     AuthService& auth_;
     UpdateService& update_;
-    juce::File authFile_;
-    juce::String deviceId_;
+    std::filesystem::path authFile_;
+    std::string deviceId_;
     std::function<void(bool)> gateSink_;
     int publishedGate_ = -1; // -1 = nothing published to this sink yet
-    juce::String pendingUrl_;
+    std::string pendingUrl_;
     // Trial persistence: saved every few seconds while the clock runs, and
     // the file time last written or read here (another instance's write is
     // newer).
     int trialSaveCounter_ = 0;
-    juce::Time authFileTime_;
+    std::int64_t authFileTimeMs_ = 0;
     static constexpr int trialSaveTicks = 50; // 5 s
 
     // Async auth replies come back on the message thread after this object
     // may already be gone, so every callback holds a weak reference.
-    JUCE_DECLARE_WEAK_REFERENCEABLE(LicensingBoundary)
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LicensingBoundary)
+    platform::LifetimeToken lifetime_;
 };
 } // namespace chordengine::licensing

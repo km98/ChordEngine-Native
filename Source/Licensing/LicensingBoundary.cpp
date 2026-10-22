@@ -1,98 +1,101 @@
 #include "LicensingBoundary.h"
 
+#include <algorithm>
+
 namespace chordengine::licensing
 {
 namespace
 {
-juce::var objectToVar(juce::DynamicObject* object)
+// JSON field readers for the auth file (a value written by this class).
+bool flagAt(const platform::Json& object, const char* name, bool fallback)
 {
-    return juce::var(object);
+    if (!object.isObject() || !object.has(name) || object[name].isNull())
+        return fallback;
+    const auto& value = object[name];
+    if (value.isBool())
+        return value.asBool();
+    return varNumber(value) != 0.0;
 }
 
-bool flagAt(const juce::var& object, const char* name, bool fallback)
+int intAt(const platform::Json& object, const char* name, int fallback)
 {
-    if (object.isVoid() || object.isUndefined())
+    if (!object.isObject() || !object.has(name) || object[name].isNull())
         return fallback;
-
-    const auto value = object.getProperty(name, juce::var());
-    if (value.isVoid() || value.isUndefined())
-        return fallback;
-
-    return static_cast<bool>(value);
+    return static_cast<int>(varNumber(object[name]));
 }
 
-int intAt(const juce::var& object, const char* name, int fallback)
+bool isNumber(const platform::Json& value)
 {
-    if (object.isVoid() || object.isUndefined())
-        return fallback;
-
-    const auto value = object.getProperty(name, juce::var());
-    if (value.isVoid() || value.isUndefined())
-        return fallback;
-
-    return static_cast<int>(static_cast<double>(value));
+    return value.isNumber();
 }
 } // namespace
 
 LicensingBoundary::LicensingBoundary(AuthService& auth, UpdateService& update,
-                                     juce::File authFile)
+                                     std::filesystem::path authFile)
     : auth_(auth), update_(update), authFile_(std::move(authFile))
 {
     model_.requestLinkStart = [this]
     {
-        const juce::WeakReference<LicensingBoundary> weakThis(this);
+        const auto weakThis = lifetime_.weak();
+        auto* const owner = this;
         // The product is EXPLICIT: the endpoint must never have to infer it
         // from the display device name, and the device id travels with the
         // pairing so the token carries this installation's identity.
-        auth_.start(juce::String(deviceName), juce::String(productVersion),
-                    juce::String(productSlug), deviceId_,
-                    [weakThis](HttpReply reply)
+        auth_.start(std::string(deviceName), std::string(productVersion),
+                    std::string(productSlug), deviceId_,
+                    [weakThis, owner](HttpReply reply)
                     {
-                        if (auto* self = weakThis.get())
-                            self->deliverAuthStartReply(reply);
+                        if (platform::LifetimeToken::alive(weakThis))
+                            owner->deliverAuthStartReply(reply);
                     });
     };
 
-    model_.requestLinkPoll = [this](const juce::String& deviceCode)
+    model_.requestLinkPoll = [this](const std::string& deviceCode)
     {
-        const juce::WeakReference<LicensingBoundary> weakThis(this);
+        const auto weakThis = lifetime_.weak();
+        auto* const owner = this;
         auth_.poll(deviceCode,
-                   [weakThis](HttpReply reply)
+                   [weakThis, owner](HttpReply reply)
                    {
-                       if (auto* self = weakThis.get())
-                           self->deliverAuthPollReply(reply);
+                       if (platform::LifetimeToken::alive(weakThis))
+                           owner->deliverAuthPollReply(reply);
                    });
     };
 
-    model_.requestEntitlements = [this](const juce::String& token)
+    model_.requestEntitlements = [this](const std::string& token)
     {
-        const juce::WeakReference<LicensingBoundary> weakThis(this);
+        const auto weakThis = lifetime_.weak();
+        auto* const owner = this;
         auth_.entitlements(token,
-                           [weakThis](HttpReply reply)
+                           [weakThis, owner](HttpReply reply)
                            {
-                               if (auto* self = weakThis.get())
-                                   self->deliverEntitlementsReply(reply);
+                               if (platform::LifetimeToken::alive(weakThis))
+                                   owner->deliverEntitlementsReply(reply);
                            });
     };
 
-    model_.requestLogout = [this](const juce::String& token)
+    model_.requestLogout = [this](const std::string& token)
     {
-        const juce::WeakReference<LicensingBoundary> weakThis(this);
-        auth_.logout(token, [weakThis](HttpReply) {});
+        const auto weakThis = lifetime_.weak();
+        auto* const owner = this;
+        (void) owner;
+        (void) weakThis;
+        auth_.logout(token, [](HttpReply) {});
     };
 
-    model_.requestLicenseActivation = [this](const juce::String& licenseKey)
+    model_.requestLicenseActivation = [this](const std::string& licenseKey)
     {
-        const juce::WeakReference<LicensingBoundary> weakThis(this);
+        const auto weakThis = lifetime_.weak();
+        auto* const owner = this;
         // The device id is required by the endpoint; the label and platform
         // are display-only and bounded server-side. The key is never stored.
         auth_.activateLicense(model_.token(), licenseKey, deviceId_, deviceLabel(),
-                              juce::SystemStats::getOperatingSystemName(),
-                              juce::String(productVersion),
-                              [weakThis](HttpReply reply)
+                              platform::operatingSystemName(),
+                              std::string(productVersion),
+                              [weakThis, owner](HttpReply reply)
                               {
-                                  if (auto* self = weakThis.get())
-                                      self->deliverActivateLicenseReply(reply);
+                                  if (platform::LifetimeToken::alive(weakThis))
+                                      owner->deliverActivateLicenseReply(reply);
                               });
     };
 
@@ -118,14 +121,14 @@ LicensingBoundary::~LicensingBoundary()
 
 std::int64_t LicensingBoundary::nowMs() const noexcept
 {
-    return juce::Time::currentTimeMillis();
+    return platform::currentTimeMillis();
 }
 
 // The owner-visible name of this computer, beside the deactivate button.
-juce::String LicensingBoundary::deviceLabel() const
+std::string LicensingBoundary::deviceLabel() const
 {
-    const auto name = juce::SystemStats::getComputerName().trim();
-    return name.isEmpty() ? juce::String(deviceName) : name;
+    const auto name = text::trim(platform::computerName());
+    return name.empty() ? std::string(deviceName) : name;
 }
 
 void LicensingBoundary::initialise()
@@ -156,7 +159,7 @@ void LicensingBoundary::publishGate()
 
 void LicensingBoundary::setInfoPageVisible(bool visible) noexcept
 {
-    juce::ignoreUnused(visible);
+    (void) visible;
 }
 
 void LicensingBoundary::notePlaybackStarted()
@@ -183,7 +186,7 @@ void LicensingBoundary::tick(double deltaMs)
         saveAuthFile();
     }
 
-    if (pendingUrl_.isEmpty() && !model_.snapshot().verificationUrl.isEmpty())
+    if (pendingUrl_.empty() && !model_.snapshot().verificationUrl.empty())
         pendingUrl_ = model_.snapshot().verificationUrl;
 }
 
@@ -200,12 +203,12 @@ void LicensingBoundary::flushTrial()
 
 bool LicensingBoundary::reloadIfChangedOnDisk(std::int64_t now)
 {
-    if (authFile_ == juce::File() || !authFile_.existsAsFile())
+    if (authFile_.empty() || platform::fileModificationTimeMs(authFile_) == 0)
         return false;
     const auto& snapshot = model_.snapshot();
     if (snapshot.polling || snapshot.activationPending || snapshot.phase == Phase::linking)
         return false;
-    if (authFile_.getLastModificationTime() <= authFileTime_)
+    if (platform::fileModificationTimeMs(authFile_) <= authFileTimeMs_)
         return false;
 
     // Keep this session's trial progress: loading merges the stored budget
@@ -250,7 +253,7 @@ void LicensingBoundary::checkForUpdatesClicked()
     model_.checkForUpdates();
 }
 
-void LicensingBoundary::activateLicenseKey(const juce::String& licenseKey)
+void LicensingBoundary::activateLicenseKey(const std::string& licenseKey)
 {
     model_.activateLicense(licenseKey);
     publishGate();
@@ -313,11 +316,11 @@ void LicensingBoundary::deliverActivateLicenseReply(const HttpReply& reply)
     publishGate();
 }
 
-bool LicensingBoundary::consumeVerificationUrl(juce::String& url)
+bool LicensingBoundary::consumeVerificationUrl(std::string& url)
 {
-    if (pendingUrl_.isEmpty())
+    if (pendingUrl_.empty())
     {
-        if (model_.snapshot().verificationUrl.isEmpty())
+        if (model_.snapshot().verificationUrl.empty())
             return false;
         url = model_.snapshot().verificationUrl;
         pendingUrl_ = url;
@@ -326,7 +329,7 @@ bool LicensingBoundary::consumeVerificationUrl(juce::String& url)
     url = pendingUrl_;
     pendingUrl_.clear();
     model_.clearVerificationUrl();
-    return url.isNotEmpty();
+    return !url.empty();
 }
 
 // ---------------------------------------------------------- persistence
@@ -337,24 +340,22 @@ bool LicensingBoundary::consumeVerificationUrl(juce::String& url)
 // the entitlement.
 void LicensingBoundary::saveAuthFile()
 {
-    if (authFile_ == juce::File())
+    if (authFile_.empty())
         return;
-
-    authFile_.getParentDirectory().createDirectory();
 
     // The trial budget is shared by every instance on this computer: never
     // write back more time than another instance already left on disk.
     auto trialRemaining = model_.snapshot().trialMs;
     auto trialExpired = model_.snapshot().trialExpired;
-    if (authFile_.existsAsFile())
+    if (const auto existing = platform::readFile(authFile_, 1u << 20))
     {
-        const auto onDisk = juce::JSON::parse(authFile_.loadFileAsString());
-        if (onDisk.isObject())
+        const auto onDisk = platform::Json::parse(*existing);
+        if (onDisk.has_value() && onDisk->isObject())
         {
-            const auto storedRemaining = onDisk.getProperty("trial_remaining_ms", juce::var());
-            if (storedRemaining.isInt() || storedRemaining.isInt64() || storedRemaining.isDouble())
-                trialRemaining = juce::jmin(trialRemaining, static_cast<double>(storedRemaining));
-            if (flagAt(onDisk, "trial_expired", false))
+            const auto& storedRemaining = (*onDisk)["trial_remaining_ms"];
+            if (isNumber(storedRemaining))
+                trialRemaining = std::min(trialRemaining, storedRemaining.asDouble());
+            if (flagAt(*onDisk, "trial_expired", false))
                 trialExpired = true;
         }
     }
@@ -369,33 +370,31 @@ void LicensingBoundary::saveAuthFile()
         publishGate();
     }
 
-    authFile_.deleteFile();
-
     const auto& cached = model_.cached();
 
-    juce::DynamicObject::Ptr object = new juce::DynamicObject();
-    object->setProperty("token", model_.token());
-    object->setProperty("display_name", model_.user());
-    object->setProperty("device_id", deviceId_);
-    object->setProperty("subscribed", cached.subscribed);
-    object->setProperty("plugin_entitled", cached.entitled);
-    object->setProperty("subscription_entitles", cached.subscriptionEntitles);
-    object->setProperty("license_entitles", cached.licenseEntitles);
-    object->setProperty("license_account_active", cached.licenseAccountActive);
-    object->setProperty("license_device_active", cached.licenseDeviceActive);
-    object->setProperty("license_status", cached.licenseStatus);
-    object->setProperty("devices_used", cached.devicesUsed);
-    object->setProperty("device_limit", cached.deviceLimit);
-    object->setProperty("verified_at", static_cast<juce::int64>(model_.verifiedAtMs()));
-    object->setProperty("trial_remaining_ms", static_cast<juce::int64>(trialRemaining));
-    object->setProperty("trial_expired", trialExpired);
-    authFile_.replaceWithText(juce::JSON::toString(objectToVar(object.get())));
-    authFileTime_ = authFile_.getLastModificationTime();
+    auto object = platform::Json::object();
+    object.set("token", model_.token());
+    object.set("display_name", model_.user());
+    object.set("device_id", deviceId_);
+    object.set("subscribed", cached.subscribed);
+    object.set("plugin_entitled", cached.entitled);
+    object.set("subscription_entitles", cached.subscriptionEntitles);
+    object.set("license_entitles", cached.licenseEntitles);
+    object.set("license_account_active", cached.licenseAccountActive);
+    object.set("license_device_active", cached.licenseDeviceActive);
+    object.set("license_status", cached.licenseStatus);
+    object.set("devices_used", cached.devicesUsed);
+    object.set("device_limit", cached.deviceLimit);
+    object.set("verified_at", static_cast<std::int64_t>(model_.verifiedAtMs()));
+    object.set("trial_remaining_ms", static_cast<std::int64_t>(trialRemaining));
+    object.set("trial_expired", trialExpired);
+    platform::writeFileAtomically(authFile_, object.dump());
+    authFileTimeMs_ = platform::fileModificationTimeMs(authFile_);
 }
 
 void LicensingBoundary::loadAuthFile()
 {
-    auto restoreDeviceId = [this](const juce::String& stored)
+    auto restoreDeviceId = [this](const std::string& stored)
     {
         // The device id is created ONCE and then kept. An id that is missing
         // or not the shape the backend accepts is replaced, so this install
@@ -410,7 +409,8 @@ void LicensingBoundary::loadAuthFile()
         return true;
     };
 
-    if (authFile_ == juce::File() || !authFile_.existsAsFile())
+    const auto stored = authFile_.empty() ? std::nullopt : platform::readFile(authFile_, 1u << 20);
+    if (!stored.has_value())
     {
         restoreDeviceId({});
         model_.loadToken({}, {}, {}, 0);
@@ -418,8 +418,8 @@ void LicensingBoundary::loadAuthFile()
         return;
     }
 
-    const auto parsed = juce::JSON::parse(authFile_.loadFileAsString());
-    if (parsed.isVoid() || parsed.isUndefined() || !parsed.isObject())
+    const auto document = platform::Json::parse(*stored);
+    if (!document.has_value() || !document->isObject())
     {
         restoreDeviceId({});
         model_.loadToken({}, {}, {}, 0);
@@ -427,8 +427,8 @@ void LicensingBoundary::loadAuthFile()
         return;
     }
 
-    const auto deviceIdWasCreated = restoreDeviceId(
-        parsed.getProperty("device_id", juce::var()).toString());
+    const auto& parsed = *document;
+    const auto deviceIdWasCreated = restoreDeviceId(varText(parsed["device_id"]));
 
     CachedEntitlement cached;
     cached.entitled = flagAt(parsed, "plugin_entitled", false);
@@ -437,9 +437,8 @@ void LicensingBoundary::loadAuthFile()
     cached.licenseEntitles = flagAt(parsed, "license_entitles", false);
     cached.licenseAccountActive = flagAt(parsed, "license_account_active", false);
     cached.licenseDeviceActive = flagAt(parsed, "license_device_active", false);
-    cached.licenseStatus = parsed.getProperty("license_status", juce::var())
-                               .toString();
-    if (cached.licenseStatus.isEmpty())
+    cached.licenseStatus = varText(parsed["license_status"]);
+    if (cached.licenseStatus.empty())
         cached.licenseStatus = licenseStatusNone;
     cached.devicesUsed = intAt(parsed, "devices_used", 0);
     cached.deviceLimit = intAt(parsed, "device_limit", deviceActivationLimit);
@@ -454,21 +453,20 @@ void LicensingBoundary::loadAuthFile()
         cached.subscriptionEntitles = false;
     }
 
-    const auto token = parsed.getProperty("token", juce::var()).toString();
-    const auto user = parsed.getProperty("display_name", juce::var()).toString();
-    const auto verifiedAt = static_cast<std::int64_t>(
-        static_cast<double>(parsed.getProperty("verified_at", 0)));
+    const auto token = varText(parsed["token"]);
+    const auto user = varText(parsed["display_name"]);
+    const auto verifiedAt = static_cast<std::int64_t>(varNumber(parsed["verified_at"]));
 
     model_.loadToken(token, user, cached, verifiedAt);
 
     // The remaining trial budget. A file written before it was persisted
     // has none, and keeps the budget this model already holds.
-    const auto trialRemaining = parsed.getProperty("trial_remaining_ms", juce::var());
-    if (trialRemaining.isInt() || trialRemaining.isInt64() || trialRemaining.isDouble())
-        model_.restoreTrial(static_cast<double>(trialRemaining), flagAt(parsed, "trial_expired", false));
+    const auto& trialRemaining = parsed["trial_remaining_ms"];
+    if (isNumber(trialRemaining))
+        model_.restoreTrial(trialRemaining.asDouble(), flagAt(parsed, "trial_expired", false));
     else if (flagAt(parsed, "trial_expired", false))
         model_.restoreTrial(0.0, true);
-    authFileTime_ = authFile_.getLastModificationTime();
+    authFileTimeMs_ = platform::fileModificationTimeMs(authFile_);
 
     if (deviceIdWasCreated)
         saveAuthFile();

@@ -1,6 +1,9 @@
 #pragma once
 
-#include <juce_core/juce_core.h>
+#include "Platform/Json.h"
+#include "Platform/Text.h"
+
+#include <string>
 
 #include <cstdint>
 
@@ -40,30 +43,30 @@ inline constexpr std::size_t maxResponseBytes = 256u * 1024u;
 
 // The build version of the translation unit that includes this header, taken
 // from the build metadata the plugin targets already generate (the same value
-// JucePlugin_VersionString). The 0.5.0 release candidate reports 0.5.0;
+// CHORDENGINE_PLUGIN_VERSION_STRING). Every build reports its own version;
 // nothing here hardcodes the reference product's 0.4.0.
 //
 // The update CLIENT never relies on this constant itself: it is told its build
 // version when it is constructed (see UpdateService), so the value always comes
 // from a translation unit of the plugin that was actually built. A translation
 // unit without the build metadata reports 0.0.0 rather than guessing.
-#if defined(JucePlugin_VersionString)
-inline constexpr const char* currentBuildVersionString = JucePlugin_VersionString;
+#if defined(CHORDENGINE_PLUGIN_VERSION_STRING)
+inline constexpr const char* currentBuildVersionString = CHORDENGINE_PLUGIN_VERSION_STRING;
 #else
 inline constexpr const char* currentBuildVersionString = "0.0.0";
 #endif
 
 // "macos" | "windows" - the platform is ALWAYS sent explicitly (the server
 // treats a missing platform as macOS).
-juce::String platformName();
+std::string platformName();
 
 // The request URL, with the product slug, the actual build version and the
 // explicit platform. `origin` is the shared Music-Prod origin.
-juce::String buildUpdateUrl(const juce::String& origin, const juce::String& product,
-                            const juce::String& currentVersion, const juce::String& platform);
+std::string buildUpdateUrl(const std::string& origin, const std::string& product,
+                            const std::string& currentVersion, const std::string& platform);
 
 // Strict semver: MAJOR.MINOR.PATCH with an optional -prerelease/+build tail.
-bool isValidSemver(const juce::String& text);
+bool isValidSemver(const std::string& text);
 
 // ---------------------------------------------------------- view model
 // Every state the INFO page can show. No state ever fabricates a version.
@@ -85,9 +88,9 @@ struct UpdateView
     // cached answer itself reported, so the Latest row stays truthful even
     // while the Status row explains that the service is unreachable.
     UpdateStatus cachedStatus = UpdateStatus::idle;
-    juce::String currentVersion; // the build version reported by this client
-    juce::String latestVersion;  // empty when the service has no version for us
-    juce::String detail;         // server reason / error detail - never a version
+    std::string currentVersion; // the build version reported by this client
+    std::string latestVersion;  // empty when the service has no version for us
+    std::string detail;         // server reason / error detail - never a version
     bool cached = false;         // restored from (or kept as) the last answer
     bool mustUpdate = false;     // the service marked the release mandatory
     std::int64_t checkedAtMs = 0;
@@ -95,8 +98,8 @@ struct UpdateView
 
 // ---- INFO-page lines. `Current version` always shows the build version;
 // `Latest version` never shows "-" once a real answer exists.
-juce::String currentVersionLine(const UpdateView& view);
-juce::String latestVersionLine(const UpdateView& view);
-juce::String statusLine(const UpdateView& view);
+std::string currentVersionLine(const UpdateView& view);
+std::string latestVersionLine(const UpdateView& view);
+std::string statusLine(const UpdateView& view);
 std::uint32_t statusColour(const UpdateView& view) noexcept;
 } // namespace chordengine::updates

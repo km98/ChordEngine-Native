@@ -1,6 +1,7 @@
 #pragma once
 
-#include <juce_audio_basics/juce_audio_basics.h>
+#include "AudioBlock.h"
+#include "MIDI/MidiEvents.h"
 
 #include <array>
 #include <atomic>
@@ -52,12 +53,12 @@ public:
 
     // Renders numSamples and ADDS the mono result into every channel of
     // buffer from startSample on.
-    void render(juce::AudioBuffer<float>& buffer, int startSample, int numSamples) noexcept;
+    void render(const AudioBlock& buffer, int startSample, int numSamples) noexcept;
 
     // Queues the block's note on/off (velocity 0 = off), CC 120 (all sound
     // off: fast fade) and CC 123 (all notes off: release) sample-accurately,
     // then renders the whole buffer additively.
-    void process(juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi) noexcept;
+    void process(const AudioBlock& buffer, const midi::MidiEventList& midi) noexcept;
 
     bool isSilent() const noexcept;
     int activeVoiceCount() const noexcept;
@@ -165,7 +166,7 @@ private:
     double sampleRate_ = 0.0;
     float sampleRateF_ = 44100.0f;
     std::vector<float> scratch_;
-    juce::LinearSmoothedValue<float> levelSmoothed_;
+    LinearSmoothed levelSmoothed_;
     float limiterGain_ = 1.0f;
     float limiterRelease_ = 0.0f;
 

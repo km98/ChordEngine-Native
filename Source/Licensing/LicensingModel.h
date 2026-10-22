@@ -55,9 +55,9 @@ public:
     void signOut();                    // infoSignOutButton
     void cancelLink();
     void beginLink();
-    void onAuthStartReply(int status, const juce::var& response);
-    void onAuthPollReply(int status, const juce::var& response);
-    void onEntitlementsReply(int status, const juce::var& response, std::int64_t nowMs);
+    void onAuthStartReply(int status, const platform::Json& response);
+    void onAuthPollReply(int status, const platform::Json& response);
+    void onEntitlementsReply(int status, const platform::Json& response, std::int64_t nowMs);
     // A 401 means the token was revoked server-side: drop it AND the
     // remembered entitlement in the same transition.
     void handle401(std::int64_t nowMs);
@@ -68,23 +68,23 @@ public:
     // ---- lifetime-licence activation (reference INFO-page key field) --
     // The customer's typed key is forwarded; the KEPT state comes from the
     // server's `entitlements` answer, never from this reply.
-    void activateLicense(const juce::String& licenseKey);
-    void onActivateLicenseReply(int status, const juce::var& response, std::int64_t nowMs);
+    void activateLicense(const std::string& licenseKey);
+    void onActivateLicenseReply(int status, const platform::Json& response, std::int64_t nowMs);
 
     // ---- token handling (the value never leaves this class) ----------
-    void loadToken(const juce::String& token, const juce::String& user,
+    void loadToken(const std::string& token, const std::string& user,
                    const CachedEntitlement& cached, std::int64_t verifiedAtMs);
-    const juce::String& token() const noexcept { return token_; }
+    const std::string& token() const noexcept { return token_; }
     const CachedEntitlement& cached() const noexcept { return snapshot_.cached; }
     std::int64_t verifiedAtMs() const noexcept { return snapshot_.verifiedAtMs; }
-    const juce::String& user() const noexcept { return snapshot_.user; }
+    const std::string& user() const noexcept { return snapshot_.user; }
     bool consumePersistenceDirty() noexcept;
 
     // ---- update check (reference ceCheckForUpdates + a service seam) --
     void checkForUpdates();
-    void onUpdateResult(bool available, const juce::String& latestVersion,
-                        const juce::String& status);
-    void onUpdateFailed(const juce::String& status);
+    void onUpdateResult(bool available, const std::string& latestVersion,
+                        const std::string& status);
+    void onUpdateFailed(const std::string& status);
 
     // ---- view -------------------------------------------------------
     const Snapshot& snapshot() const noexcept { return snapshot_; }
@@ -92,19 +92,19 @@ public:
 
     // ---- action hooks (wired by LicensingBoundary; message thread) ----
     std::function<void()> requestLinkStart;
-    std::function<void(const juce::String& deviceCode)> requestLinkPoll;
-    std::function<void(const juce::String& token)> requestEntitlements;
-    std::function<void(const juce::String& token)> requestLogout;
-    std::function<void(const juce::String& licenseKey)> requestLicenseActivation;
+    std::function<void(const std::string& deviceCode)> requestLinkPoll;
+    std::function<void(const std::string& token)> requestEntitlements;
+    std::function<void(const std::string& token)> requestLogout;
+    std::function<void(const std::string& licenseKey)> requestLicenseActivation;
     std::function<void()> requestUpdateCheck;
 
 private:
     void resetEntitlement() noexcept;
-    void setToken(const juce::String& token, const juce::String& user);
+    void setToken(const std::string& token, const std::string& user);
 
     Snapshot snapshot_ {};
-    juce::String token_;
-    juce::String deviceCode_;
+    std::string token_;
+    std::string deviceCode_;
     bool persistenceDirty_ = false;
     int pollTickCounter_ = 0;
     int verifyTickCounter_ = 0;

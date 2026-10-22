@@ -1,0 +1,30 @@
+{
+  "Name": "ChordEngine",
+  "Version": "@CHORDENGINE_VERSION@",
+  "Factory Info": {
+    "Vendor": "Music-Prod",
+    "URL": "https://music-prod.com",
+    "E-Mail": "",
+    "Flags": {
+      "Unicode": true,
+      "Classes Discardable": false,
+      "Component Non Discardable": false
+    }
+  },
+  "Classes": [
+    {
+      "CID": "ABCDEF019182FAEB4D7573634365666C",
+      "Category": "Audio Module Class",
+      "Name": "ChordEngine",
+      "Vendor": "Music-Prod",
+      "Version": "@CHORDENGINE_VERSION@",
+      "SDKVersion": "VST 3.8.0",
+      "Sub Categories": [
+        "Instrument"
+      ],
+      "Class Flags": 2,
+      "Cardinality": 2147483647,
+      "Snapshots": []
+    }
+  ]
+}

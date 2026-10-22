@@ -11,34 +11,34 @@ constexpr std::uint32_t colourAmber = 0xffe0b050;
 constexpr std::uint32_t colourGreen = 0xff7fd48a;
 constexpr std::uint32_t colourRed = 0xffe05a5a;
 
-bool isDigit(juce::juce_wchar c) noexcept
+bool isDigit(char c) noexcept
 {
     return c >= '0' && c <= '9';
 }
 
 // One numeric component of a semver core: at least one digit, no leading zero
 // unless it is exactly "0".
-bool isNumericIdentifier(const juce::String& text) noexcept
+bool isNumericIdentifier(const std::string& text) noexcept
 {
-    if (text.isEmpty())
+    if (text.empty())
         return false;
 
-    for (int index = 0; index < text.length(); ++index)
+    for (std::size_t index = 0; index < text.size(); ++index)
         if (!isDigit(text[index]))
             return false;
 
-    if (text.length() > 1 && text[0] == '0')
+    if (text.size() > 1 && text[0] == '0')
         return false;
 
     return true;
 }
 
-bool isAlphanumericIdentifier(const juce::String& text) noexcept
+bool isAlphanumericIdentifier(const std::string& text) noexcept
 {
-    if (text.isEmpty())
+    if (text.empty())
         return false;
 
-    for (int index = 0; index < text.length(); ++index)
+    for (std::size_t index = 0; index < text.size(); ++index)
     {
         const auto c = text[index];
         if (!isDigit(c) && !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && c != '-')
@@ -49,7 +49,7 @@ bool isAlphanumericIdentifier(const juce::String& text) noexcept
 }
 } // namespace
 
-juce::String platformName()
+std::string platformName()
 {
 #if defined(_WIN32) || defined(_WIN64)
     return "windows";
@@ -58,47 +58,46 @@ juce::String platformName()
 #endif
 }
 
-juce::String buildUpdateUrl(const juce::String& origin, const juce::String& product,
-                            const juce::String& currentVersion, const juce::String& platform)
+std::string buildUpdateUrl(const std::string& origin, const std::string& product,
+                            const std::string& currentVersion, const std::string& platform)
 {
     // Every value below is a validated, constrained token (a fixed slug, a
     // validated semver, a fixed platform word), so no escaping is required and
     // the URL stays exactly reproducible in the tests.
-    jassert(product.isNotEmpty() && platform.isNotEmpty());
     return origin + updateFunctionPath
          + "?product=" + product
          + "&current=" + currentVersion
          + "&platform=" + platform;
 }
 
-bool isValidSemver(const juce::String& text)
+bool isValidSemver(const std::string& text)
 {
-    if (text.isEmpty())
+    if (text.empty())
         return false;
 
-    if (text.startsWith("v") || text.startsWith("V"))
+    if (text[0] == 'v' || text[0] == 'V')
         return false;
 
     auto core = text;
-    auto preRelease = juce::String();
-    auto build = juce::String();
+    auto preRelease = std::string();
+    auto build = std::string();
 
-    const auto plus = text.indexOfChar('+');
-    if (plus >= 0)
+    const auto plus = text.find('+');
+    if (plus != std::string::npos)
     {
-        build = text.substring(plus + 1);
-        core = text.substring(0, plus);
+        build = text.substr(plus + 1);
+        core = text.substr(0, plus);
     }
 
-    const auto minus = core.indexOfChar('-');
-    if (minus >= 0)
+    const auto minus = core.find('-');
+    if (minus != std::string::npos)
     {
-        preRelease = core.substring(minus + 1);
-        core = core.substring(0, minus);
+        preRelease = core.substr(minus + 1);
+        core = core.substr(0, minus);
     }
 
     // MAJOR.MINOR.PATCH - exactly three numeric components.
-    const auto parts = juce::StringArray::fromTokens(core, ".", {});
+    const auto parts = text::split(core, '.');
     if (parts.size() != 3)
         return false;
     for (const auto& part : parts)
@@ -106,10 +105,10 @@ bool isValidSemver(const juce::String& text)
             return false;
 
     // -prerelease: dot-separated alphanumeric identifiers.
-    if (minus >= 0)
+    if (minus != std::string::npos)
     {
-        auto identifiers = juce::StringArray::fromTokens(preRelease, ".", {});
-        if (identifiers.isEmpty())
+        const auto identifiers = text::split(preRelease, '.');
+        if (identifiers.empty())
             return false;
         for (const auto& identifier : identifiers)
             if (!isAlphanumericIdentifier(identifier))
@@ -117,10 +116,10 @@ bool isValidSemver(const juce::String& text)
     }
 
     // +build: dot-separated alphanumeric identifiers.
-    if (plus >= 0)
+    if (plus != std::string::npos)
     {
-        auto identifiers = juce::StringArray::fromTokens(build, ".", {});
-        if (identifiers.isEmpty())
+        const auto identifiers = text::split(build, '.');
+        if (identifiers.empty())
             return false;
         for (const auto& identifier : identifiers)
             if (!isAlphanumericIdentifier(identifier))
@@ -130,12 +129,12 @@ bool isValidSemver(const juce::String& text)
     return true;
 }
 
-juce::String currentVersionLine(const UpdateView& view)
+std::string currentVersionLine(const UpdateView& view)
 {
     return "Current version  " + view.currentVersion;
 }
 
-juce::String latestVersionLine(const UpdateView& view)
+std::string latestVersionLine(const UpdateView& view)
 {
     switch (view.status)
     {
@@ -159,16 +158,16 @@ juce::String latestVersionLine(const UpdateView& view)
                 return "Latest version  No published release";
 
             return "Latest version  "
-                 + (view.latestVersion.isNotEmpty() ? view.latestVersion : juce::String("-"));
+                 + (!view.latestVersion.empty() ? view.latestVersion : std::string("-"));
         }
     }
 
     return "Latest version  -";
 }
 
-juce::String statusLine(const UpdateView& view)
+std::string statusLine(const UpdateView& view)
 {
-    juce::String base;
+    std::string base;
     switch (view.status)
     {
         case UpdateStatus::idle: base = "-"; break;
@@ -182,14 +181,14 @@ juce::String statusLine(const UpdateView& view)
         case UpdateStatus::error:
             // `detail` is already a complete, honest phrase (an offline note or
             // an error note); it is never a version.
-            base = view.detail.isNotEmpty() ? view.detail
-                                            : juce::String("Error checking for updates");
+            base = !view.detail.empty() ? view.detail
+                                            : std::string("Error checking for updates");
             break;
     }
 
     // A restored answer is marked as cached; the offline line already says so.
     if (view.cached && view.status != UpdateStatus::offlineCached)
-        base << " (cached)";
+        base += " (cached)";
 
     return "Status  " + base;
 }

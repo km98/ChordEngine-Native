@@ -21,6 +21,9 @@
 #include "Licensing/LicensingServices.h"
 #include "Licensing/LicensingTypes.h"
 
+#include "Platform/Text.h"
+#include "TestSupport.h"
+
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -31,13 +34,13 @@ namespace
 {
 int casesPassed = 0;
 
-[[noreturn]] void fail(const juce::String& message)
+[[noreturn]] void fail(const std::string& message)
 {
     std::cerr << "FAIL: " << message << '\n';
     std::exit(EXIT_FAILURE);
 }
 
-void require(bool condition, const juce::String& message)
+void require(bool condition, const std::string& message)
 {
     if (!condition)
         fail(message);
@@ -63,8 +66,8 @@ constexpr int trialTicks = 19000;
 class MockAuthService final : public chordengine::licensing::AuthService
 {
 public:
-    void start(const juce::String& deviceName, const juce::String& pluginVersion,
-               const juce::String& product, const juce::String& deviceId,
+    void start(const std::string& deviceName, const std::string& pluginVersion,
+               const std::string& product, const std::string& deviceId,
                Callback callback) override
     {
         ++startCalls;
@@ -73,30 +76,30 @@ public:
         pendingStart = std::move(callback);
     }
 
-    void poll(const juce::String& deviceCode, Callback callback) override
+    void poll(const std::string& deviceCode, Callback callback) override
     {
         ++pollCalls;
         lastPolledCode = deviceCode;
         pendingPoll = std::move(callback);
     }
 
-    void entitlements(const juce::String& token, Callback callback) override
+    void entitlements(const std::string& token, Callback callback) override
     {
         ++entitlementCalls;
         lastToken = token;
         pendingEntitlements = std::move(callback);
     }
 
-    void logout(const juce::String& token, Callback callback) override
+    void logout(const std::string& token, Callback callback) override
     {
         ++logoutCalls;
         lastToken = token;
         pendingLogout = std::move(callback);
     }
 
-    void activateLicense(const juce::String& token, const juce::String& licenseKey,
-                        const juce::String& deviceId, const juce::String& deviceLabel,
-                        const juce::String& platform, const juce::String& pluginVersion,
+    void activateLicense(const std::string& token, const std::string& licenseKey,
+                        const std::string& deviceId, const std::string& deviceLabel,
+                        const std::string& platform, const std::string& pluginVersion,
                         Callback callback) override
     {
         ++activateCalls;
@@ -109,11 +112,11 @@ public:
     int entitlementCalls = 0;
     int logoutCalls = 0;
     int activateCalls = 0;
-    juce::String lastProduct;
-    juce::String lastDeviceId;
-    juce::String lastPolledCode;
-    juce::String lastToken;
-    juce::String lastLicenseKey;
+    std::string lastProduct;
+    std::string lastDeviceId;
+    std::string lastPolledCode;
+    std::string lastToken;
+    std::string lastLicenseKey;
     Callback pendingStart;
     Callback pendingPoll;
     Callback pendingEntitlements;
@@ -135,27 +138,22 @@ public:
 };
 
 // --------------------------------------------------------------- fixtures
-juce::File storageDirectory(const juce::String& name)
+std::filesystem::path storageDirectory(const std::string& name)
 {
-    auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                   .getChildFile("ChordEngine-RouteSwitchTests")
-                   .getChildFile(name);
-    dir.deleteRecursively();
-    dir.createDirectory();
-    return dir;
+    return chordengine::test::freshDirectory("ChordEngine-RouteSwitchTests", name);
 }
 
-juce::File authFileFor(const juce::String& name)
+std::filesystem::path authFileFor(const std::string& name)
 {
-    return storageDirectory(name).getChildFile("auth.json");
+    return storageDirectory(name) / "auth.json";
 }
 
-juce::var object(const std::vector<std::pair<const char*, juce::var>>& fields)
+chordengine::platform::Json object(const std::vector<std::pair<const char*, chordengine::platform::Json>>& fields)
 {
-    juce::DynamicObject::Ptr dynamic = new juce::DynamicObject();
+    auto dynamic = chordengine::platform::Json::object();
     for (const auto& field : fields)
-        dynamic->setProperty(field.first, field.second);
-    return juce::var(dynamic.get());
+        dynamic.set(field.first, field.second);
+    return dynamic;
 }
 
 // One route's answer, in the exact shape the server builds. `subscriptionActive`
@@ -167,18 +165,18 @@ struct RouteState
     bool subscribed = false;         // the raw membership (display only)
     bool subscriptionActive = false; // subscription.active
     bool coversProduct = true;       // subscription.covers_product
-    juce::String licenseStatus = chordengine::licensing::licenseStatusNone;
+    std::string licenseStatus = chordengine::licensing::licenseStatusNone;
     bool licenseAccountActive = false;
     bool licenseDeviceActive = false;
     int devicesUsed = 0;
     int deviceLimit = 3;
 };
 
-juce::var entitlementBody(const RouteState& state)
+chordengine::platform::Json entitlementBody(const RouteState& state)
 {
     return object({
         { "ok", true },
-        { "product", juce::String(chordengine::licensing::productSlug) },
+        { "product", std::string(chordengine::licensing::productSlug) },
         { "subscribed", state.subscribed },
         { "plugin_entitled", state.entitled },
         { "subscription",
@@ -191,8 +189,8 @@ juce::var entitlementBody(const RouteState& state)
                    { "device_active", state.licenseDeviceActive },
                    { "devices_used", state.devicesUsed },
                    { "device_limit", state.deviceLimit },
-                   { "expires_at", juce::var() } }) },
-        { "packs", juce::var(juce::Array<juce::var>()) },
+                   { "expires_at", chordengine::platform::Json() } }) },
+        { "packs", chordengine::platform::Json(chordengine::platform::Json::array()) },
     });
 }
 
@@ -217,8 +215,8 @@ RouteState licenseRoute(bool active, int used = 1)
     state.subscribed = false;
     state.subscriptionActive = false;
     state.coversProduct = true; // chordengine is a subscription-covered product
-    state.licenseStatus = active ? juce::String(chordengine::licensing::licenseStatusActive)
-                                 : juce::String(chordengine::licensing::licenseStatusNone);
+    state.licenseStatus = active ? std::string(chordengine::licensing::licenseStatusActive)
+                                 : std::string(chordengine::licensing::licenseStatusNone);
     state.licenseAccountActive = active;
     state.licenseDeviceActive = active;
     state.devicesUsed = active ? used : 0;
@@ -239,7 +237,7 @@ struct Session
     std::unique_ptr<MockAuthService> auth;
     std::unique_ptr<MockUpdateService> update;
     std::unique_ptr<LicensingBoundary> boundary;
-    juce::File authFile;
+    std::filesystem::path authFile;
     // The value the audio path reads. Shared so it stays valid for the
     // boundary's whole lifetime.
     std::shared_ptr<bool> gateOpen;
@@ -247,7 +245,7 @@ struct Session
 
 // A signed-in session whose gate sink records exactly what the audio path
 // would read, so a route switch can be checked at the level that matters.
-Session sessionFor(const juce::String& name)
+Session sessionFor(const std::string& name)
 {
     Session session;
     session.auth = std::make_unique<MockAuthService>();
@@ -264,7 +262,7 @@ Session sessionFor(const juce::String& name)
     session.auth->pendingStart(HttpReply { 200,
         object({ { "device_code", "dev-route" },
                  { "user_code", "ABCD-EFGH" },
-                 { "product", juce::String(chordengine::licensing::productSlug) },
+                 { "product", std::string(chordengine::licensing::productSlug) },
                  { "verification_url_complete", "https://music-prod.com/plugin/link?code=ABCD-EFGH" } }),
         true });
     for (int tick = 0; tick < 12 && session.auth->pollCalls == 0; ++tick)
@@ -296,42 +294,42 @@ void deliver(LicensingBoundary& boundary, const RouteState& state)
 
 // Reads one persisted flag by MEANING, not by its text encoding: the file must
 // carry the field, and a JSON boolean (or its 1/0 form) is what it says.
-bool persistedFlag(const juce::File& file, const char* name)
+bool persistedFlag(const std::filesystem::path& file, const char* name)
 {
-    const auto parsed = juce::JSON::parse(file.loadFileAsString());
+    const auto parsed = chordengine::test::parseJson(chordengine::test::readText(file));
     require(parsed.isObject(), "persistence: auth.json holds a JSON object");
-    const auto value = parsed.getProperty(name, juce::var());
-    require(!value.isVoid() && !value.isUndefined(),
-            juce::String("persistence: '") + name + "' must be written");
+    const auto& value = parsed[name];
+    require(parsed.has(name) && !value.isNull(),
+            std::string("persistence: '") + name + "' must be written");
     if (value.isBool())
-        return static_cast<bool>(value);
-    const auto text = value.toString().trim().toLowerCase();
+        return value.asBool();
+    const auto text = chordengine::text::toLower(chordengine::text::trim(chordengine::licensing::varText(value)));
     return text == "true" || text == "1";
 }
 
 // A cached answer written the way the client writes it, aged by `ageDays`.
-juce::File writeCachedEntitlement(const juce::String& name, const RouteState& state,
+std::filesystem::path writeCachedEntitlement(const std::string& name, const RouteState& state,
                                   double ageDays)
 {
     auto file = authFileFor(name);
-    juce::DynamicObject::Ptr cached = new juce::DynamicObject();
-    cached->setProperty("token", "cached-token");
-    cached->setProperty("display_name", "Martin");
-    cached->setProperty("device_id", chordengine::licensing::newDeviceId());
-    cached->setProperty("subscribed", state.subscribed);
-    cached->setProperty("plugin_entitled", state.entitled);
-    cached->setProperty("subscription_entitles",
+    auto cached = chordengine::platform::Json::object();
+    cached.set("token", "cached-token");
+    cached.set("display_name", "Martin");
+    cached.set("device_id", chordengine::licensing::newDeviceId());
+    cached.set("subscribed", state.subscribed);
+    cached.set("plugin_entitled", state.entitled);
+    cached.set("subscription_entitles",
                         state.entitled && state.subscriptionActive && state.coversProduct);
-    cached->setProperty("license_entitles",
+    cached.set("license_entitles",
                         state.entitled && state.licenseDeviceActive);
-    cached->setProperty("license_account_active", state.licenseAccountActive);
-    cached->setProperty("license_device_active", state.licenseDeviceActive);
-    cached->setProperty("license_status", state.licenseStatus);
-    cached->setProperty("devices_used", state.devicesUsed);
-    cached->setProperty("device_limit", state.deviceLimit);
-    cached->setProperty("verified_at", static_cast<juce::int64>(
-        static_cast<double>(juce::Time::currentTimeMillis()) - ageDays * dayMs));
-    file.replaceWithText(juce::JSON::toString(juce::var(cached.get())));
+    cached.set("license_account_active", state.licenseAccountActive);
+    cached.set("license_device_active", state.licenseDeviceActive);
+    cached.set("license_status", state.licenseStatus);
+    cached.set("devices_used", state.devicesUsed);
+    cached.set("device_limit", state.deviceLimit);
+    cached.set("verified_at", static_cast<std::int64_t>(
+        static_cast<double>(chordengine::platform::currentTimeMillis()) - ageDays * dayMs));
+    chordengine::platform::writeFileAtomically(file, (cached).dump());
     return file;
 }
 } // namespace
@@ -653,9 +651,9 @@ int main()
         auto& boundary = *session.boundary;
         require(!boundary.snapshot().licensed, "malformed: no access before any answer");
 
-        for (const auto& bogus : { juce::var("true"), juce::var("yes"), juce::var(1),
-                                   juce::var(0), juce::var(), juce::var::undefined(),
-                                   juce::var(juce::Array<juce::var>()) })
+        for (const auto& bogus : { chordengine::platform::Json("true"), chordengine::platform::Json("yes"), chordengine::platform::Json(1),
+                                   chordengine::platform::Json(0), chordengine::platform::Json(), chordengine::platform::Json(),
+                                   chordengine::platform::Json(chordengine::platform::Json::array()) })
         {
             boundary.deliverEntitlementsReply(HttpReply { 200,
                 object({ { "ok", true },
@@ -690,7 +688,7 @@ int main()
         boundary.deliverEntitlementsReply(HttpReply { 200,
             object({ { "ok", true },
                      { "subscribed", true },
-                     { "plugin_entitled", juce::var("true") } }),
+                     { "plugin_entitled", chordengine::platform::Json("true") } }),
             true });
         require(boundary.snapshot().licensed,
                 "malformed: a non-boolean gate is silence, not a verdict, and never withdraws "
@@ -753,12 +751,12 @@ int main()
             boundary.activateLicenseKey("PC-7QF2-3MHD-NX4T-9BKR");
             require(auth.activateCalls > 0, "activation verdicts: the key reaches the service");
 
-            juce::var body;
-            if (juce::String(verdict) == "device_limit")
+            chordengine::platform::Json body;
+            if (std::string(verdict) == "device_limit")
             {
                 body = object({ { "ok", false },
                                 { "status", "device_limit" },
-                                { "product", juce::String(chordengine::licensing::productSlug) },
+                                { "product", std::string(chordengine::licensing::productSlug) },
                                 { "message", "This licence is already active on 3 of 3 computers." },
                                 { "device", object({ { "activated", false },
                                                      { "label", "This Mac" },
@@ -768,18 +766,18 @@ int main()
             else
             {
                 body = object({ { "ok", false },
-                                { "status", juce::String(verdict) },
-                                { "product", juce::String(chordengine::licensing::productSlug) },
+                                { "status", std::string(verdict) },
+                                { "product", std::string(chordengine::licensing::productSlug) },
                                 { "message", "That licence key was not accepted." } });
             }
 
             auth.pendingActivate(HttpReply { 200, body, true });
 
             require(boundary.snapshot().licensed && *session.gateOpen,
-                    juce::String("activation verdicts: a ") + verdict
+                    std::string("activation verdicts: a ") + verdict
                         + " answer never withdraws a valid subscription entitlement");
             require(boundary.snapshot().cached.subscriptionEntitles,
-                    juce::String("activation verdicts: the ") + verdict
+                    std::string("activation verdicts: the ") + verdict
                         + " answer keeps the subscription route intact");
             require(!boundary.snapshot().cached.licenseEntitles,
                     "activation verdicts: no failure may invent a licence route");
@@ -805,7 +803,7 @@ int main()
         licenceOnlySession.auth->pendingActivate(HttpReply { 200,
             object({ { "ok", false },
                      { "status", "revoked" },
-                     { "product", juce::String(chordengine::licensing::productSlug) },
+                     { "product", std::string(chordengine::licensing::productSlug) },
                      { "message", "This licence has been revoked." } }),
             true });
         require(!licenceOnly.snapshot().licensed,
@@ -845,7 +843,7 @@ int main()
             LicensingModel model;
             model.loadToken("token", "Martin", cached, verifiedAt);
             model.applyCachedEntitlement(nowMs);
-            require(model.snapshot().licensed, juce::String("grace: ") + note);
+            require(model.snapshot().licensed, std::string("grace: ") + note);
         };
 
         const auto deniedAt = [verifiedAt](const CachedEntitlement& cached,
@@ -854,7 +852,7 @@ int main()
             LicensingModel model;
             model.loadToken("token", "Martin", cached, verifiedAt);
             model.applyCachedEntitlement(nowMs);
-            require(!model.snapshot().licensed, juce::String("grace: ") + note);
+            require(!model.snapshot().licensed, std::string("grace: ") + note);
         };
 
         CachedEntitlement subscription;
@@ -922,8 +920,8 @@ int main()
 
     constexpr int expectedCaseCount = 10;
     require(casesPassed == expectedCaseCount,
-            "every route-switch case must run: expected " + juce::String(expectedCaseCount)
-                + ", executed " + juce::String(casesPassed));
+            "every route-switch case must run: expected " + std::to_string(expectedCaseCount)
+                + ", executed " + std::to_string(casesPassed));
 
     std::cout << "ChordEngineRouteSwitchTests: " << casesPassed << "/" << expectedCaseCount
               << " route-switch cases passed\n";

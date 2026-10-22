@@ -1,0 +1,52 @@
+{
+  "cocoaUI" : true,
+  "factoryPresets" : 1,
+  "globalParameters" : 0,
+  "inputElements" : 0,
+  "inputFormats" : [
+
+  ],
+  "latency" : 0,
+  "manufacturer" : "Musc",
+  "midiOutputCallbackInfo" : true,
+  "name" : "Music-Prod: ChordEngine Instrument",
+  "outputElements" : 1,
+  "outputFormats" : [
+    {
+      "channels" : 2,
+      "name" : "Output",
+      "rate" : 44100
+    }
+  ],
+  "renderByChannels" : [
+    {
+      "channels" : 1,
+      "midiOut" : 2,
+      "renders" : true
+    },
+    {
+      "channels" : 2,
+      "midiOut" : 2,
+      "renders" : true
+    },
+    {
+      "channels" : 4,
+      "midiOut" : 0,
+      "renders" : false
+    }
+  ],
+  "subtype" : "Cein",
+  "supportedNumChannels" : [
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2
+    ]
+  ],
+  "tail" : 3,
+  "type" : "aumu",
+  "version" : 1281
+}

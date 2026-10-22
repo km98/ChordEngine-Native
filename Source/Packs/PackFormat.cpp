@@ -1,58 +1,58 @@
 #include "PackFormat.h"
 
-#include <juce_cryptography/juce_cryptography.h>
+#include "Platform/Platform.h"
+
+#include <algorithm>
+#include <sstream>
 
 namespace chordengine::packs
 {
 namespace
 {
-bool isPrintableText(const juce::String& text) noexcept
+bool isPrintableText(const std::string& text) noexcept
 {
-    for (auto pointer = text.getCharPointer(); !pointer.isEmpty();)
-    {
-        const auto character = pointer.getAndAdvance();
+    for (const auto character : text::codePoints(text))
         if (character < 0x20 || (character >= 0x7f && character <= 0x9f))
             return false;
-    }
     return true;
 }
 
 // A display name: non-empty, bounded, printable and without surrounding
 // whitespace (so "Jazz" and "Jazz " can never be two different presets).
-bool isValidName(const juce::String& name, int maxLength) noexcept
+bool isValidName(const std::string& name, int maxLength) noexcept
 {
-    const auto length = name.length();
-    return length >= 1 && length <= maxLength && isPrintableText(name)
-        && name == name.trim();
+    const auto length = text::utf8Length(name);
+    return length >= 1 && length <= static_cast<std::size_t>(maxLength) && isPrintableText(name)
+        && name == text::trim(name);
 }
 
-bool readString(const juce::var& object, const char* key, bool required,
-                juce::String& out, juce::String& error)
+bool readString(const platform::Json& object, const char* key, bool required,
+                std::string& out, std::string& error)
 {
-    const auto value = object.getProperty(key, juce::var());
-    if (value.isVoid() || value.isUndefined())
+    const auto& value = object[key];
+    if (value.isNull())
     {
         if (required)
-            error = juce::String(key) + ": missing";
+            error = std::string(key) + ": missing";
         return !required;
     }
     if (!value.isString())
     {
-        error = juce::String(key) + ": must be a string";
+        error = std::string(key) + ": must be a string";
         return false;
     }
-    out = value.toString();
+    out = value.stringRef();
     return true;
 }
 
-bool isInteger(const juce::var& value) noexcept
+bool isInteger(const platform::Json& value) noexcept
 {
-    return value.isInt() || value.isInt64();
+    return value.isInteger();
 }
 
-std::optional<PackPreset> parsePreset(const juce::var& value, int index, juce::String& error)
+std::optional<PackPreset> parsePreset(const platform::Json& value, int index, std::string& error)
 {
-    const auto where = "presets[" + juce::String(index) + "]";
+    const auto where = "presets[" + std::to_string(index) + "]";
     if (!value.isObject())
     {
         error = where + ": must be an object";
@@ -60,7 +60,7 @@ std::optional<PackPreset> parsePreset(const juce::var& value, int index, juce::S
     }
 
     PackPreset preset;
-    juce::String fieldError;
+    std::string fieldError;
     if (!readString(value, "name", true, preset.name, fieldError))
     {
         error = where + "." + fieldError;
@@ -68,12 +68,12 @@ std::optional<PackPreset> parsePreset(const juce::var& value, int index, juce::S
     }
     if (!isValidName(preset.name, maxPresetNameLength))
     {
-        error = where + ".name: must be 1.." + juce::String(maxPresetNameLength)
+        error = where + ".name: must be 1.." + std::to_string(maxPresetNameLength)
               + " printable characters without surrounding spaces";
         return std::nullopt;
     }
 
-    juce::String voicing;
+    std::string voicing;
     if (!readString(value, "voicing", true, voicing, fieldError))
     {
         error = where + "." + fieldError;
@@ -87,8 +87,8 @@ std::optional<PackPreset> parsePreset(const juce::var& value, int index, juce::S
     }
     preset.voicing = *style;
 
-    const auto map = value.getProperty("triggerMap", juce::var());
-    const auto* codes = map.getArray();
+    const auto& map = value["triggerMap"];
+    const auto* codes = map.isArray() ? &map.items() : nullptr;
     if (codes == nullptr)
     {
         error = where + ".triggerMap: must be an array";
@@ -96,28 +96,30 @@ std::optional<PackPreset> parsePreset(const juce::var& value, int index, juce::S
     }
     if (static_cast<std::size_t>(codes->size()) != triggerCount)
     {
-        error = where + ".triggerMap: must hold exactly " + juce::String(static_cast<int>(triggerCount))
+        error = where + ".triggerMap: must hold exactly " + std::to_string(triggerCount)
               + " codes";
         return std::nullopt;
     }
-    for (int slot = 0; slot < codes->size(); ++slot)
+    for (std::size_t slot = 0; slot < codes->size(); ++slot)
     {
-        const auto& code = codes->getReference(slot);
-        const auto number = isInteger(code) ? static_cast<juce::int64>(code) : -1;
+        const auto& code = (*codes)[slot];
+        const auto number = isInteger(code) ? code.asInt() : -1;
         if (number < 0 || number > maxTriggerCode)
         {
-            error = where + ".triggerMap[" + juce::String(slot) + "]: must be an integer 0.."
-                  + juce::String(maxTriggerCode);
+            error = where + ".triggerMap[" + std::to_string(slot) + "]: must be an integer 0.."
+                  + std::to_string(maxTriggerCode);
             return std::nullopt;
         }
-        preset.triggerMap[static_cast<std::size_t>(slot)] = static_cast<std::uint8_t>(number);
+        preset.triggerMap[slot] = static_cast<std::uint8_t>(number);
     }
     return preset;
 }
 
-juce::String quoted(const juce::String& text)
+std::string quoted(const std::string& text)
 {
-    return juce::JSON::toString(juce::var(text), juce::JSON::FormatOptions{}.withSpacing(juce::JSON::Spacing::none));
+    std::string out;
+    platform::appendJsonString(out, text);
+    return out;
 }
 } // namespace
 
@@ -132,7 +134,7 @@ const char* toString(VoicingStyle style) noexcept
     return "close";
 }
 
-std::optional<VoicingStyle> voicingFromString(const juce::String& text) noexcept
+std::optional<VoicingStyle> voicingFromString(const std::string& text) noexcept
 {
     if (text == "close")
         return VoicingStyle::close;
@@ -155,12 +157,12 @@ bool PackDefinition::operator==(const PackDefinition& other) const noexcept
         && presets == other.presets && isStock == other.isStock;
 }
 
-bool isValidSlug(const juce::String& slug) noexcept
+bool isValidSlug(const std::string& slug) noexcept
 {
-    const auto length = slug.length();
+    const auto length = slug.size();
     if (length < 2 || length > 63)
         return false;
-    for (int index = 0; index < length; ++index)
+    for (std::size_t index = 0; index < length; ++index)
     {
         const auto character = slug[index];
         const bool alnum = (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9');
@@ -170,68 +172,75 @@ bool isValidSlug(const juce::String& slug) noexcept
     return true;
 }
 
-bool isValidVersion(const juce::String& version) noexcept
+bool isValidVersion(const std::string& version) noexcept
 {
-    juce::StringArray parts;
-    parts.addTokens(version, ".", "");
-    if (parts.size() != 3 || version.length() > 32)
+    const auto parts = text::split(version, '.');
+    if (parts.size() != 3 || version.size() > 32)
         return false;
     for (const auto& part : parts)
-        if (part.isEmpty() || !part.containsOnly("0123456789"))
+        if (part.empty() || !text::containsOnly(part, "0123456789"))
             return false;
     return true;
 }
 
-int compareVersions(const juce::String& a, const juce::String& b) noexcept
+int compareVersions(const std::string& a, const std::string& b) noexcept
 {
     const bool validA = isValidVersion(a);
     const bool validB = isValidVersion(b);
     if (!validA || !validB)
         return static_cast<int>(validA) - static_cast<int>(validB);
 
-    juce::StringArray partsA, partsB;
-    partsA.addTokens(a, ".", "");
-    partsB.addTokens(b, ".", "");
-    for (int index = 0; index < 3; ++index)
+    const auto partsA = text::split(a, '.');
+    const auto partsB = text::split(b, '.');
+    for (std::size_t index = 0; index < 3; ++index)
     {
-        const auto numberA = partsA[index].getLargeIntValue();
-        const auto numberB = partsB[index].getLargeIntValue();
+        // At most 32 characters in all, so a component can exceed 64 bits;
+        // compare by length first, then digit by digit, after leading zeros.
+        auto strip = [](const std::string& digits)
+        {
+            const auto first = digits.find_first_not_of('0');
+            return first == std::string::npos ? std::string("0") : digits.substr(first);
+        };
+        const auto numberA = strip(partsA[index]);
+        const auto numberB = strip(partsB[index]);
+        if (numberA.size() != numberB.size())
+            return numberA.size() < numberB.size() ? -1 : 1;
         if (numberA != numberB)
             return numberA < numberB ? -1 : 1;
     }
     return 0;
 }
 
-std::optional<PackDefinition> parse(const juce::String& json, juce::String& error)
+std::optional<PackDefinition> parse(const std::string& json, std::string& error)
 {
     error.clear();
-    if (json.getNumBytesAsUTF8() > maxPackBytes)
+    if (json.size() > maxPackBytes)
     {
-        error = "pack exceeds " + juce::String(static_cast<int>(maxPackBytes / 1024)) + " KiB";
+        error = "pack exceeds " + std::to_string(maxPackBytes / 1024) + " KiB";
         return std::nullopt;
     }
 
-    juce::var root;
-    const auto result = juce::JSON::parse(json, root);
-    if (result.failed() || !root.isObject())
+    const auto document = platform::Json::parse(json);
+    if (!document.has_value() || !document->isObject())
     {
         error = "not a JSON object";
         return std::nullopt;
     }
+    const auto& root = *document;
 
-    juce::String format;
+    std::string format;
     if (!readString(root, "format", true, format, error))
         return std::nullopt;
     if (format != formatName)
     {
-        error = "format: must be " + juce::String(formatName);
+        error = "format: must be " + std::string(formatName);
         return std::nullopt;
     }
 
-    const auto versionValue = root.getProperty("formatVersion", juce::var());
-    if (!isInteger(versionValue) || static_cast<juce::int64>(versionValue) != formatVersion)
+    const auto& versionValue = root["formatVersion"];
+    if (!isInteger(versionValue) || versionValue.asInt() != formatVersion)
     {
-        error = "formatVersion: must be " + juce::String(formatVersion);
+        error = "formatVersion: must be " + std::to_string(formatVersion);
         return std::nullopt;
     }
 
@@ -251,7 +260,7 @@ std::optional<PackDefinition> parse(const juce::String& json, juce::String& erro
     }
     if (!isValidName(pack.name, maxPackNameLength))
     {
-        error = "name: must be 1.." + juce::String(maxPackNameLength) + " printable characters";
+        error = "name: must be 1.." + std::to_string(maxPackNameLength) + " printable characters";
         return std::nullopt;
     }
     if (!isValidVersion(pack.version))
@@ -259,46 +268,48 @@ std::optional<PackDefinition> parse(const juce::String& json, juce::String& erro
         error = "version: must be MAJOR.MINOR.PATCH";
         return std::nullopt;
     }
-    if (pack.author.isEmpty())
+    if (pack.author.empty())
         pack.author = defaultAuthor;
     if (!isValidName(pack.author, maxAuthorLength))
     {
-        error = "author: must be 1.." + juce::String(maxAuthorLength) + " printable characters";
+        error = "author: must be 1.." + std::to_string(maxAuthorLength) + " printable characters";
         return std::nullopt;
     }
-    if (pack.description.length() > maxDescriptionLength)
+    if (text::utf8Length(pack.description) > static_cast<std::size_t>(maxDescriptionLength))
     {
-        error = "description: longer than " + juce::String(maxDescriptionLength) + " characters";
+        error = "description: longer than " + std::to_string(maxDescriptionLength) + " characters";
         return std::nullopt;
     }
 
-    const auto* presets = root.getProperty("presets", juce::var()).getArray();
+    const auto& presetsValue = root["presets"];
+    const auto* presets = presetsValue.isArray() ? &presetsValue.items() : nullptr;
     if (presets == nullptr)
     {
         error = "presets: must be an array";
         return std::nullopt;
     }
-    if (presets->size() < minPresets || presets->size() > maxPresets)
+    if (presets->size() < static_cast<std::size_t>(minPresets) || presets->size() > static_cast<std::size_t>(maxPresets))
     {
-        error = "presets: must hold " + juce::String(minPresets) + ".." + juce::String(maxPresets)
+        error = "presets: must hold " + std::to_string(minPresets) + ".." + std::to_string(maxPresets)
               + " presets";
         return std::nullopt;
     }
 
-    juce::StringArray seenNames;
-    for (int index = 0; index < presets->size(); ++index)
+    std::vector<std::string> seenNames;
+    for (std::size_t index = 0; index < presets->size(); ++index)
     {
-        auto preset = parsePreset(presets->getReference(index), index, error);
+        auto preset = parsePreset((*presets)[index], static_cast<int>(index), error);
         if (!preset)
             return std::nullopt;
         // Names identify presets in saved host state, so they are unique
         // ignoring case.
-        if (seenNames.contains(preset->name, true))
+        const auto folded = text::toLower(preset->name);
+        if (std::find(seenNames.begin(), seenNames.end(), folded) != seenNames.end())
         {
-            error = "presets[" + juce::String(index) + "].name: duplicate \"" + preset->name + "\"";
+            error = "presets[" + std::to_string(index) + "].name: duplicate \"" + preset->name + "\"";
             return std::nullopt;
         }
-        seenNames.add(preset->name);
+        seenNames.push_back(folded);
         pack.presets.push_back(std::move(*preset));
     }
 
@@ -306,27 +317,25 @@ std::optional<PackDefinition> parse(const juce::String& json, juce::String& erro
     return pack;
 }
 
-std::optional<PackDefinition> parse(const juce::MemoryBlock& utf8, juce::String& error)
+std::optional<PackDefinition> parse(const platform::Bytes& utf8, std::string& error)
 {
     error.clear();
-    if (utf8.getSize() > maxPackBytes)
+    if (utf8.size() > maxPackBytes)
     {
-        error = "pack exceeds " + juce::String(static_cast<int>(maxPackBytes / 1024)) + " KiB";
+        error = "pack exceeds " + std::to_string(maxPackBytes / 1024) + " KiB";
         return std::nullopt;
     }
-    const auto* data = static_cast<const char*>(utf8.getData());
-    if (utf8.getSize() > 0
-        && !juce::CharPointer_UTF8::isValidString(data, static_cast<int>(utf8.getSize())))
+    if (!utf8.empty() && !platform::isValidUtf8(utf8.data(), utf8.size()))
     {
         error = "pack is not valid UTF-8";
         return std::nullopt;
     }
-    return parse(juce::String::fromUTF8(data, static_cast<int>(utf8.getSize())), error);
+    return parse(platform::textOf(utf8), error);
 }
 
-juce::String toJson(const PackDefinition& pack)
+std::string toJson(const PackDefinition& pack)
 {
-    juce::String out;
+    std::ostringstream out;
     out << "{\n"
         << "  \"format\": " << quoted(formatName) << ",\n"
         << "  \"formatVersion\": " << formatVersion << ",\n"
@@ -351,7 +360,7 @@ juce::String toJson(const PackDefinition& pack)
     }
 
     out << "\n  ]\n}\n";
-    return out;
+    return out.str();
 }
 
 PackDefinition makeStockPack()
@@ -367,16 +376,12 @@ PackDefinition makeStockPack()
     for (int index = 0; index < static_cast<int>(core::ChordPresetSystem::count()); ++index)
     {
         const auto* definition = core::ChordPresetSystem::findByIndex(index);
-        jassert(definition != nullptr);
         if (definition == nullptr)
             continue;
 
         PackPreset preset;
-        preset.name = juce::String::fromUTF8(definition->name.data(),
-                                             static_cast<int>(definition->name.size()));
-        const auto style = voicingFromString(juce::String::fromUTF8(
-            definition->voicingStyle.data(), static_cast<int>(definition->voicingStyle.size())));
-        jassert(style.has_value());
+        preset.name = std::string(definition->name);
+        const auto style = voicingFromString(std::string(definition->voicingStyle));
         preset.voicing = style.value_or(VoicingStyle::close);
         for (std::size_t slot = 0; slot < triggerCount; ++slot)
             preset.triggerMap[slot] = definition->triggerMap[slot];
@@ -385,13 +390,13 @@ PackDefinition makeStockPack()
     return pack;
 }
 
-juce::String sha256Hex(const juce::MemoryBlock& bytes)
+std::string sha256Hex(const platform::Bytes& bytes)
 {
-    return juce::SHA256(bytes).toHexString().toLowerCase();
+    return platform::sha256Hex(bytes.data(), bytes.size());
 }
 
-bool isValidSha256Hex(const juce::String& digest) noexcept
+bool isValidSha256Hex(const std::string& digest) noexcept
 {
-    return digest.length() == 64 && digest.containsOnly("0123456789abcdef");
+    return digest.size() == 64 && text::containsOnly(digest, "0123456789abcdef");
 }
 } // namespace chordengine::packs

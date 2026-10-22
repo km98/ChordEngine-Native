@@ -1,0 +1,29 @@
+{
+    "cocoaUI": true,
+    "factoryPresets": 1,
+    "globalParameters": 0,
+    "inputElements": 0,
+    "inputFormats": [],
+    "latency": 0,
+    "manufacturer": "Musc",
+    "midiOutputCallbackInfo": true,
+    "name": "Music-Prod: ChordEngine",
+    "outputElements": 1,
+    "outputFormats": [
+        {
+            "channels": 2,
+            "name": "",
+            "rate": 44100
+        }
+    ],
+    "subtype": "Cefl",
+    "supportedNumChannels": [
+        [
+            0,
+            -1
+        ]
+    ],
+    "tail": 0,
+    "type": "aumi",
+    "version": 1281
+}

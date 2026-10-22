@@ -10,7 +10,7 @@ namespace chordengine::updates
 struct TransportReply
 {
     int status = 0;           // HTTP status; 0 when the request never completed
-    juce::String body;        // response body (empty when the server never answered)
+    std::string body;        // response body (empty when the server never answered)
     bool transportOk = false; // the server answered, whatever the status
     bool timedOut = false;    // the read deadline elapsed (or the socket timed out)
 };
@@ -21,17 +21,17 @@ class UpdateTransport
 {
 public:
     virtual ~UpdateTransport() = default;
-    virtual TransportReply get(const juce::String& url) = 0;
+    virtual TransportReply get(const std::string& url) = 0;
 
     using Ptr = std::unique_ptr<UpdateTransport>;
 };
 
-// Production transport: one unauthenticated GET through juce::URL, with the
-// 5 s connection timeout and a 5 s read deadline enforced on top of it.
+// Production transport: one unauthenticated GET through the platform HTTP
+// layer, with the 5 s connection timeout and a 5 s read deadline.
 class HttpUpdateTransport final : public UpdateTransport
 {
 public:
-    TransportReply get(const juce::String& url) override;
+    TransportReply get(const std::string& url) override;
 };
 
 // Deterministic "the service could not be reached" transport. It performs no
@@ -40,7 +40,7 @@ public:
 class OfflineUpdateTransport final : public UpdateTransport
 {
 public:
-    TransportReply get(const juce::String& url) override;
+    TransportReply get(const std::string& url) override;
 };
 
 // The transport the plugin editor uses unless one is injected. It is inline on

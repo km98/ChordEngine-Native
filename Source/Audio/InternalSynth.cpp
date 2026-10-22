@@ -7,6 +7,12 @@ namespace chordengine::audio
 {
 namespace
 {
+// The float value of pi the 0.5 synth used for its filter coefficients.
+constexpr float kPi = static_cast<float>(3.141592653589793238L);
+} // namespace
+
+namespace
+{
 constexpr float twoPi = 6.283185307179586f;
 constexpr float silenceFloor = 1.0e-4f;    // -80 dB: a voice below this is done
 constexpr float stealFadeSeconds = 0.003f; // voice stealing / retrigger fade
@@ -616,7 +622,7 @@ float InternalSynth::renderSynth(Voice& voice) noexcept
     voice.filterEnv *= voice.filterEnvCoeff;
     const float cutoff = std::clamp(voice.cutoffBase + voice.cutoffDepth * voice.filterEnv,
                                     30.0f, 0.45f * sampleRateF_);
-    const float g = std::tan(juce::MathConstants<float>::pi * cutoff / sampleRateF_);
+    const float g = std::tan(kPi * cutoff / sampleRateF_);
     return voice.filterA.lowpass(0.5f * (sawA + sawB) + 0.28f * sub, g, 1.2f);
 }
 
@@ -636,7 +642,7 @@ float InternalSynth::renderBass(Voice& voice) noexcept
     voice.filterEnv *= voice.filterEnvCoeff;
     const float cutoff = std::clamp(voice.cutoffBase + voice.cutoffDepth * voice.filterEnv,
                                     30.0f, 0.45f * sampleRateF_);
-    const float g = std::tan(juce::MathConstants<float>::pi * cutoff / sampleRateF_);
+    const float g = std::tan(kPi * cutoff / sampleRateF_);
     const float filtered = voice.filterB.lowpass(voice.filterA.lowpass(0.55f * saw + 0.3f * square, g, 1.0f), g, 1.4f);
     return filtered + 0.6f * sine;
 }
@@ -731,17 +737,17 @@ void InternalSynth::renderVoice(Voice& voice, float* output, int numSamples) noe
 }
 
 // ------------------------------------------------------------- rendering
-void InternalSynth::render(juce::AudioBuffer<float>& buffer, int startSample, int numSamples) noexcept
+void InternalSynth::render(const AudioBlock& buffer, int startSample, int numSamples) noexcept
 {
     if (sampleRate_ <= 0.0 || numSamples <= 0 || scratch_.empty())
         return;
-    const juce::ScopedNoDenormals noDenormals;
+    const ScopedNoDenormals noDenormals;
 
     blockSound_ = sound_.load(std::memory_order_relaxed);
     blockBassMono_ = bassLowestOnly_.load(std::memory_order_relaxed);
     levelSmoothed_.setTargetValue(level_.load(std::memory_order_relaxed));
 
-    const int channels = buffer.getNumChannels();
+    const int channels = buffer.numChannels;
     const int capacity = static_cast<int>(scratch_.size());
     int eventIndex = 0;
     int position = 0;
@@ -790,23 +796,22 @@ void InternalSynth::render(juce::AudioBuffer<float>& buffer, int startSample, in
     eventCount_ = kept;
 }
 
-void InternalSynth::process(juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi) noexcept
+void InternalSynth::process(const AudioBlock& buffer, const midi::MidiEventList& midi) noexcept
 {
-    const int numSamples = buffer.getNumSamples();
+    const int numSamples = buffer.numSamples;
     if (numSamples <= 0)
         return;
 
-    for (const auto metadata : midi)
+    for (const auto& message : midi)
     {
-        const auto message = metadata.getMessage();
-        const int offset = std::clamp(metadata.samplePosition, 0, numSamples - 1);
+        const int offset = std::clamp(message.sampleOffset, 0, numSamples - 1);
         if (message.isNoteOn())
         {
-            noteOn(message.getChannel(), message.getNoteNumber(), message.getFloatVelocity(), offset);
+            noteOn(message.channel(), message.noteNumber(), message.floatVelocity(), offset);
         }
         else if (message.isNoteOff())
         {
-            noteOff(message.getChannel(), message.getNoteNumber(), offset);
+            noteOff(message.channel(), message.noteNumber(), offset);
         }
         else if (message.isAllSoundOff() || message.isAllNotesOff())
         {

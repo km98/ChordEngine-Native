@@ -49,21 +49,32 @@ Both use this repository in place as the single working directory.
 - Preserve existing uncommitted and untracked work; check `git status` before and
   after a session.
 
-Session-independent workflow, run from the repository root (needs `cmake` ≥ 3.22 on
-`PATH` and Xcode; the first configure fetches the pinned JUCE into `Build/`, which
-needs network access):
+Session-independent workflow, run from the repository root. ChordEngine 0.6 (branch
+`juce-free`) contains no JUCE: the only third-party code is the vendored Apple
+AudioUnitSDK and Steinberg VST 3 SDK in `ThirdParty/`. Needs `cmake` ≥ 3.22 on `PATH`
+and Xcode (C++23); `Tools/FetchSdk.sh` fetches the full VST 3 SDK and Steinberg's
+validator (test tools only) into `Build/sdk-src/` and needs network access once:
 
 ```sh
-cmake -S . -B Build/macOS-JUCE9 -G Xcode \
+Tools/FetchSdk.sh
+cmake -S . -B Build/native -G "Unix Makefiles" \
   -DCMAKE_OSX_ARCHITECTURES='arm64;x86_64' -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build Build/macOS-JUCE9 --config Release
-ctest --test-dir Build/macOS-JUCE9 -C Release --output-on-failure
+cmake --build Build/native -j 8
+ctest --test-dir Build/native --output-on-failure
 
-# GUI preview without a DAW: renders the real editor to PNGs in
-# Build/macOS-JUCE9/Release/GuiSnapshots/ (no arguments, no window, no host).
-cmake --build Build/macOS-JUCE9 --config Release --target ChordEngineGuiSnapshot
-./Build/macOS-JUCE9/Release/ChordEngineGuiSnapshot
+# GUI preview without a DAW: renders the real AppKit editor offscreen to PNGs
+# (no window, no host); add <0.5.1 dir> <compare dir> for before/after images.
+./Build/native/Tests/ChordEngineEditorSnapshot Build/native/EditorSnapshots
 ```
+
+Tests that touch per-user folders run with `CFFIXED_USER_HOME` set by CTest (setting
+`HOME` does not redirect them), so they never read or write real licence, pack or
+update files. Never install test builds into `/Library/Audio/Plug-Ins` or
+`~/Library/Audio/Plug-Ins`; the AU and VST3 host tests load the built bundles
+in-process. Bundles are in `Build/native/Bundles/`, sealed ad hoc only. Packaging:
+`Tools/PackageMacDMG.sh --unsigned` checks the installer structure without signing;
+signing, notarizing and releasing are the owner's. Architecture, identity, test
+results and open items: `Docs/NATIVE_REBUILD.md`; editor: `Docs/UI_NATIVE_EDITOR.md`.
 
 In a Remote Control session, review the snapshot PNGs by reading them from that
 folder. The current UI redesign (visual system, layout, snapshot states,

@@ -2,6 +2,8 @@
 
 #include "UpdateTypes.h"
 
+#include <filesystem>
+
 namespace chordengine::updates
 {
 // The normalised public fields of the LAST SUCCESSFUL answer plus the moment
@@ -11,13 +13,13 @@ namespace chordengine::updates
 struct CachedUpdate
 {
     bool valid = false;
-    juce::String product;
-    juce::String platform;
-    juce::String currentVersion;
-    juce::String latestVersion;   // empty when the server reported none
-    juce::String decision;
-    juce::String serverStatus;
-    juce::String reason;
+    std::string product;
+    std::string platform;
+    std::string currentVersion;
+    std::string latestVersion;   // empty when the server reported none
+    std::string decision;
+    std::string serverStatus;
+    std::string reason;
     bool mustUpdate = false;
     std::int64_t checkedAtMs = 0;
 };
@@ -28,15 +30,15 @@ struct CachedUpdate
 class UpdateCache
 {
 public:
-    explicit UpdateCache(juce::File file);
+    explicit UpdateCache(std::filesystem::path file);
 
     CachedUpdate load() const;
     bool save(const CachedUpdate& entry) const;
 
-    const juce::File& file() const noexcept { return file_; }
+    const std::filesystem::path& file() const noexcept { return file_; }
     static constexpr const char* fileName = "update-cache.json";
 
 private:
-    juce::File file_;
+    std::filesystem::path file_;
 };
 } // namespace chordengine::updates

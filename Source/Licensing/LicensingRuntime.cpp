@@ -1,9 +1,11 @@
 #include "LicensingRuntime.h"
 
+#include <algorithm>
+
 namespace chordengine::licensing
 {
 LicensingRuntime::LicensingRuntime(std::unique_ptr<AuthService> auth,
-                                   std::unique_ptr<UpdateService> update, juce::File authFile)
+                                   std::unique_ptr<UpdateService> update, std::filesystem::path authFile)
     : auth_(std::move(auth)),
       update_(update != nullptr ? std::move(update) : std::make_unique<MusicProdUpdateService>()),
       boundary_(*auth_, *update_, std::move(authFile))
@@ -13,7 +15,7 @@ LicensingRuntime::LicensingRuntime(std::unique_ptr<AuthService> auth,
 
 LicensingRuntime::~LicensingRuntime()
 {
-    stopTimer();
+    timer_.stop();
     // Keep the trial budget used in this session.
     boundary_.flushTrial();
 }
@@ -30,22 +32,22 @@ void LicensingRuntime::setPlaybackActivitySource(std::function<bool()> source)
 
 void LicensingRuntime::start()
 {
-    lastTimerMs_ = juce::Time::getMillisecondCounterHiRes();
-    startTimer(static_cast<int>(tickMs));
+    lastTimerMs_ = platform::millisecondCounterHiRes();
+    timer_.start(static_cast<int>(tickMs), [this] { timerCallback(); });
 }
 
 void LicensingRuntime::editorOpened()
 {
-    boundary_.reloadIfChangedOnDisk(juce::Time::currentTimeMillis());
+    boundary_.reloadIfChangedOnDisk(platform::currentTimeMillis());
     requestRecheck();
 }
 
 void LicensingRuntime::timerCallback()
 {
-    const auto now = juce::Time::getMillisecondCounterHiRes();
+    const auto now = platform::millisecondCounterHiRes();
     const auto delta = now - lastTimerMs_;
     lastTimerMs_ = now;
-    tick(delta, juce::Time::currentTimeMillis());
+    tick(delta, platform::currentTimeMillis());
 }
 
 void LicensingRuntime::tick(double deltaMs, std::int64_t nowMs)
@@ -53,7 +55,7 @@ void LicensingRuntime::tick(double deltaMs, std::int64_t nowMs)
     // The trial clock counts time the plug-in is actually running: a stalled
     // timer (a sleeping computer, a blocked message thread) is credited at
     // most one second, never the whole gap.
-    deltaMs = juce::jlimit(0.0, 1000.0, deltaMs);
+    deltaMs = std::clamp(deltaMs, 0.0, 1000.0);
 
     if (activitySource_ && activitySource_())
         boundary_.notePlaybackStarted();

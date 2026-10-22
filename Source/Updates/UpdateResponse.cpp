@@ -6,9 +6,9 @@ namespace
 {
 constexpr const char* noPublishedReleaseWord = "noPublishedRelease";
 
-bool isKnownDecision(const juce::String& decision)
+bool isKnownDecision(const std::string& decision)
 {
-    if (decision.isEmpty())
+    if (decision.empty())
         return true; // the decision field itself is optional
 
     return decision == "upToDate"
@@ -17,22 +17,22 @@ bool isKnownDecision(const juce::String& decision)
         || decision == "belowMinimumSupported";
 }
 
-juce::String textOrEmpty(const juce::var& value)
+std::string textOrEmpty(const platform::Json& value)
 {
-    return value.isString() ? value.toString() : juce::String();
+    return value.isString() ? value.stringRef() : std::string();
 }
 
-bool boolOrFalse(const juce::var& value)
+bool boolOrFalse(const platform::Json& value)
 {
-    return value.isBool() && static_cast<bool>(value);
+    return value.isBool() && value.asBool();
 }
 
-bool isNullLike(const juce::var& value)
+bool isNullLike(const platform::Json& value)
 {
-    return value.isVoid() || value.isUndefined();
+    return value.isNull();
 }
 
-UpdateResponse reject(const juce::String& reason)
+UpdateResponse reject(const std::string& reason)
 {
     UpdateResponse response;
     response.ok = false;
@@ -42,20 +42,16 @@ UpdateResponse reject(const juce::String& reason)
 }
 } // namespace
 
-juce::var parseJsonText(const juce::String& text)
+platform::Json parseJsonText(const std::string& text)
 {
-    if (text.isEmpty())
+    if (text.empty())
         return {};
 
-    juce::var parsed;
-    const auto result = juce::JSON::parse(text, parsed);
-    if (result.failed() || result.getErrorMessage().isNotEmpty())
-        return {};
-
-    return parsed;
+    auto parsed = platform::Json::parse(text);
+    return parsed.has_value() ? *parsed : platform::Json();
 }
 
-UpdateStatus classifyServerAnswer(const juce::String& serverStatus, const juce::String& decision,
+UpdateStatus classifyServerAnswer(const std::string& serverStatus, const std::string& decision,
                                   bool mandatoryFlag, bool hasLatestVersion, bool& mustUpdateOut)
 {
     mustUpdateOut = false;
@@ -64,7 +60,7 @@ UpdateStatus classifyServerAnswer(const juce::String& serverStatus, const juce::
     // upToDate as its decision, and that must never be shown as "Up to date".
     if (serverStatus == noPublishedReleaseWord)
     {
-        juce::ignoreUnused(hasLatestVersion);
+        (void) hasLatestVersion;
         return UpdateStatus::noPublishedRelease;
     }
 
@@ -87,11 +83,11 @@ UpdateStatus classifyServerAnswer(const juce::String& serverStatus, const juce::
     return UpdateStatus::upToDate;
 }
 
-UpdateResponse parseUpdateResponse(const juce::var& root, const juce::String& requestedPlatform)
+UpdateResponse parseUpdateResponse(const platform::Json& root, const std::string& requestedPlatform)
 {
-    juce::String envelopeErrorCode;
+    std::string envelopeErrorCode;
     if (root.isObject())
-        envelopeErrorCode = textOrEmpty(root.getProperty("errorCode", juce::var()));
+        envelopeErrorCode = textOrEmpty(root["errorCode"]);
 
     const auto withCode = [&envelopeErrorCode](UpdateResponse response)
     {
@@ -103,31 +99,31 @@ UpdateResponse parseUpdateResponse(const juce::var& root, const juce::String& re
         return withCode(reject("malformed response"));
 
     // 1. success must be exactly true.
-    const auto success = root.getProperty("success", juce::var());
-    if (!success.isBool() || !static_cast<bool>(success))
+    const auto success = root["success"];
+    if (!success.isBool() || !success.asBool())
         return withCode(reject("unsuccessful response"));
 
     // 2. the data object must exist.
-    const auto data = root.getProperty("data", juce::var());
+    const auto data = root["data"];
     if (!data.isObject())
         return withCode(reject("malformed response data"));
 
     UpdateResponse response;
 
     // 3. product must be this product.
-    const auto product = data.getProperty("product", juce::var());
-    if (!product.isString() || product.toString() != productSlug)
+    const auto product = data["product"];
+    if (!product.isString() || product.stringRef() != productSlug)
         return withCode(reject("unexpected product"));
 
     // 4. currentVersion (optional) must be valid semver when supplied.
-    const auto currentValue = data.getProperty("currentVersion", juce::var());
+    const auto currentValue = data["currentVersion"];
     if (!isNullLike(currentValue))
     {
         if (!currentValue.isString())
             return withCode(reject("invalid current version"));
 
-        const auto current = currentValue.toString();
-        if (current.isNotEmpty())
+        const auto current = currentValue.stringRef();
+        if (!current.empty())
         {
             if (!isValidSemver(current))
                 return withCode(reject("invalid current version"));
@@ -136,35 +132,35 @@ UpdateResponse parseUpdateResponse(const juce::var& root, const juce::String& re
     }
 
     // 5. latestVersion must be valid semver whenever it is non-null.
-    const auto latestValue = data.getProperty("latestVersion", juce::var());
+    const auto latestValue = data["latestVersion"];
     const bool hasLatest = !isNullLike(latestValue);
     if (hasLatest)
     {
-        if (!latestValue.isString() || !isValidSemver(latestValue.toString()))
+        if (!latestValue.isString() || !isValidSemver(latestValue.stringRef()))
             return withCode(reject("invalid latest version"));
 
-        response.latestVersion = latestValue.toString();
+        response.latestVersion = latestValue.stringRef();
     }
 
     // 6. the requested platform must match the response platform when given.
-    const auto platformValue = data.getProperty("platform", juce::var());
+    const auto platformValue = data["platform"];
     if (!isNullLike(platformValue))
     {
         if (!platformValue.isString())
             return withCode(reject("invalid platform"));
 
-        const auto reported = platformValue.toString();
-        if (reported.isNotEmpty() && reported != requestedPlatform)
+        const auto reported = platformValue.stringRef();
+        if (!reported.empty() && reported != requestedPlatform)
             return withCode(reject("platform mismatch"));
     }
 
-    response.decision = textOrEmpty(data.getProperty("decision", juce::var()));
-    response.serverStatus = textOrEmpty(data.getProperty("status", juce::var()));
-    response.reason = textOrEmpty(data.getProperty("reason", juce::var()));
+    response.decision = textOrEmpty(data["decision"]);
+    response.serverStatus = textOrEmpty(data["status"]);
+    response.reason = textOrEmpty(data["reason"]);
 
-    const bool updateAvailable = boolOrFalse(data.getProperty("updateAvailable", juce::var()));
-    const bool mustUpdateFlag = boolOrFalse(data.getProperty("mustUpdate", juce::var()))
-        || boolOrFalse(data.getProperty("mandatory", juce::var()));
+    const bool updateAvailable = boolOrFalse(data["updateAvailable"]);
+    const bool mustUpdateFlag = boolOrFalse(data["mustUpdate"])
+        || boolOrFalse(data["mandatory"]);
 
     // 7. no unknown decision values.
     if (!isKnownDecision(response.decision))

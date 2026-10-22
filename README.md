@@ -1,5 +1,13 @@
 # ChordEngine Native
 
+> **0.6.0 (branch `juce-free`): JUCE-free.** ChordEngine is rebuilt on its own code
+> plus Apple's AudioUnitSDK (Apache-2.0) and Steinberg's VST 3 SDK (MIT) only, with
+> the same AU codes, VST3 class ID, state format and look. New bundle ids:
+> `com.musicprod.chordengine.au`, `com.musicprod.chordengine.instrument.au`,
+> `com.musicprod.chordengine.vst3`. Build, test and status:
+> [Docs/NATIVE_REBUILD.md](Docs/NATIVE_REBUILD.md). The sections below describe the
+> JUCE-based 0.5.x builds and are kept as history.
+
 Code-driven JUCE/CMake rewrite workspace. Release candidate **0.5.0** — the first UNIVERSAL release: one product, one implementation and one entitlement, replacing the legacy ChordEngine FL 0.4.0 build. The native MIDI engine and customer-facing JUCE GUI are implemented; FL Studio and Logic Pro acceptance testing of this candidate is still outstanding, and the candidate is unsigned, unpackaged and unpublished.
 
 - Product identity: **ChordEngine**, **Music-Prod**.

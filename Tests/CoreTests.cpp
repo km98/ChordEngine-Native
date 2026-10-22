@@ -1,18 +1,13 @@
 #include "Core/ChordEngineCore.h"
 #include "Core/ScaleSystem.h"
 #include "MIDI/MidiNoteTracker.h"
-#include "PluginProcessor.h"
+#include "ProcessorTestSupport.h"
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <vector>
-
-namespace juce
-{
-void juce_VerifyPlugin();
-void juce_VerifyPlugin() {}
-}
 
 namespace
 {
@@ -275,29 +270,27 @@ int main()
             "tracker clears sustained state on pedal-up");
 
     ChordEngineAudioProcessor processor;
-    juce::AudioBuffer<float> audio(2, 64);
-    for (int channel = 0; channel < audio.getNumChannels(); ++channel)
-        for (int sample = 0; sample < audio.getNumSamples(); ++sample)
-            audio.setSample(channel, sample, 0.5f);
+    processor.prepareToPlay(48000.0, 64);
+    chordengine::test::AudioBuffer audio(2, 64);
+    audio.fill(0.5f);
 
-    juce::MidiBuffer midi;
-    midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 3);
-    midi.addEvent(juce::MidiMessage::controllerEvent(1, 1, 127), 17);
-    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 45);
-    processor.processBlock(audio, midi);
-    require(midi.getNumEvents() == 9,
+    auto midi = chordengine::test::events({ chordengine::test::noteOn(1, 60, 100, 3),
+                                            chordengine::test::controller(1, 1, 127, 17),
+                                            chordengine::test::noteOff(1, 60, 45) });
+    processor.processBlock(audio.block(), midi);
+    require(midi.size() == 9,
             "processor replaces valid input with four chord notes and four releases, forwarding the controller");
     std::size_t index = 0;
-    for (const auto metadata : midi)
+    for (const auto& message : midi)
     {
         if (index < 4)
-            require(metadata.getMessage().isNoteOn() && metadata.samplePosition == 3,
+            require(message.isNoteOn() && message.sampleOffset == 3,
                     "processor emits ordered chord notes at original input timestamp");
         if (index == 4)
-            require(metadata.getMessage().isController() && metadata.samplePosition == 17,
+            require(message.isController() && message.sampleOffset == 17,
                     "processor forwards unhandled controller in its original sample timeline");
         if (index >= 5)
-            require(metadata.getMessage().isNoteOff() && metadata.samplePosition == 45,
+            require(message.isNoteOff() && message.sampleOffset == 45,
                     "processor releases generated pitches at matching trigger note-off time");
         ++index;
     }
@@ -305,29 +298,27 @@ int main()
         for (int sample = 0; sample < audio.getNumSamples(); ++sample)
             require(audio.getSample(channel, sample) == 0.0f, "processor keeps audio silent");
 
-    juce::MidiBuffer sustainEvents;
-    sustainEvents.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
-    sustainEvents.addEvent(juce::MidiMessage::noteOn(1, 64, static_cast<juce::uint8>(90)), 4);
-    sustainEvents.addEvent(juce::MidiMessage::noteOff(1, 64), 28);
-    processor.processBlock(audio, sustainEvents);
+    auto sustainEvents = chordengine::test::events({ chordengine::test::controller(1, 64, 127, 0),
+                                                     chordengine::test::noteOn(1, 64, 90, 4),
+                                                     chordengine::test::noteOff(1, 64, 28) });
+    processor.processBlock(audio.block(), sustainEvents);
     require(processor.trackedNoteSustained(1, 64), "processor tracker records input note sustain");
 
-    // GUI encoding hygiene: JUCE's String(const char*) decodes as ASCII, so any
-    // non-ASCII byte in the editor sources renders as mojibake in the plugin.
-    // Keep the editor plain ASCII and free of superseded product copy.
+    // The editor sources carry no superseded product copy.
     {
-        const juce::File editorSource(juce::String(CHORDENGINE_SOURCE_DIR) + "/Source/PluginEditor.cpp");
-        require(editorSource.existsAsFile(), "editor source is readable for the encoding check");
-        const auto text = editorSource.loadFileAsString();
-        int nonAsciiCharacters = 0;
-        for (const auto character : text)
-            if (static_cast<juce::juce_wchar>(character) > 127)
-                ++nonAsciiCharacters;
-        require(nonAsciiCharacters == 0, "editor source contains no non-ASCII bytes");
-        const char* const supersededCopy[] { "Chord preview", "MIDI-only", "NATIVE MIDI FX",
-                                             "Placeholder only", "SIGN IN / CANCEL" };
-        for (const auto* term : supersededCopy)
-            require(!text.contains(term), "editor source no longer contains superseded copy");
+        int checked = 0;
+        for (const auto& entry : std::filesystem::directory_iterator(std::string(CHORDENGINE_SOURCE_DIR) + "/Source/UI"))
+        {
+            if (entry.path().extension() != ".mm" && entry.path().extension() != ".h")
+                continue;
+            const auto text = chordengine::test::readText(entry.path());
+            ++checked;
+            const char* const supersededCopy[] { "Chord preview", "MIDI-only", "NATIVE MIDI FX",
+                                                 "Placeholder only", "SIGN IN / CANCEL" };
+            for (const auto* term : supersededCopy)
+                require(text.find(term) == std::string::npos, "editor source no longer contains superseded copy");
+        }
+        require(checked > 0, "editor sources are readable for the copy check");
     }
 
     std::cout << "ChordEngineCoreTests: all expanded checks passed\n";

@@ -2,7 +2,9 @@
 
 #include "LicensingServices.h"
 
-#include <juce_core/juce_core.h>
+#include "Platform/Platform.h"
+
+#include <string>
 
 namespace chordengine::licensing
 {
@@ -20,22 +22,22 @@ public:
     MusicProdAuthService();
     ~MusicProdAuthService() override;
 
-    void start(const juce::String& deviceName, const juce::String& pluginVersion,
-               const juce::String& product, const juce::String& deviceId,
+    void start(const std::string& deviceName, const std::string& pluginVersion,
+               const std::string& product, const std::string& deviceId,
                Callback callback) override;
-    void poll(const juce::String& deviceCode, Callback callback) override;
-    void entitlements(const juce::String& token, Callback callback) override;
-    void logout(const juce::String& token, Callback callback) override;
-    void activateLicense(const juce::String& token, const juce::String& licenseKey,
-                        const juce::String& deviceId, const juce::String& deviceLabel,
-                        const juce::String& platform, const juce::String& pluginVersion,
+    void poll(const std::string& deviceCode, Callback callback) override;
+    void entitlements(const std::string& token, Callback callback) override;
+    void logout(const std::string& token, Callback callback) override;
+    void activateLicense(const std::string& token, const std::string& licenseKey,
+                        const std::string& deviceId, const std::string& deviceLabel,
+                        const std::string& platform, const std::string& pluginVersion,
                         Callback callback) override;
 
 private:
-    void post(const juce::var& body, Callback callback);
+    void post(const platform::Json& body, Callback callback);
 
-    juce::ThreadPool pool_ { 1 };
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MusicProdAuthService)
+    // One background worker; destroying the service drops queued requests
+    // and waits up to 3 s for the one in flight (as before).
+    platform::WorkerQueue worker_ { 3000 };
 };
 } // namespace chordengine::licensing

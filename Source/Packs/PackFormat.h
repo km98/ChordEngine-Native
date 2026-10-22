@@ -2,7 +2,11 @@
 
 #include "Core/ChordPresetSystem.h"
 
-#include <juce_core/juce_core.h>
+#include "Platform/Bytes.h"
+#include "Platform/Json.h"
+#include "Platform/Text.h"
+
+#include <string>
 
 #include <array>
 #include <cstddef>
@@ -54,11 +58,11 @@ enum class VoicingStyle : std::uint8_t
 
 // "close" | "spread" | "open" - the same spelling ChordPresetDefinition uses.
 const char* toString(VoicingStyle style) noexcept;
-std::optional<VoicingStyle> voicingFromString(const juce::String& text) noexcept;
+std::optional<VoicingStyle> voicingFromString(const std::string& text) noexcept;
 
 struct PackPreset
 {
-    juce::String name;
+    std::string name;
     VoicingStyle voicing = VoicingStyle::close;
     std::array<std::uint8_t, triggerCount> triggerMap {};
 
@@ -68,11 +72,11 @@ struct PackPreset
 
 struct PackDefinition
 {
-    juce::String slug;
-    juce::String name;
-    juce::String version;
-    juce::String author = defaultAuthor;
-    juce::String description;
+    std::string slug;
+    std::string name;
+    std::string version;
+    std::string author = defaultAuthor;
+    std::string description;
     std::vector<PackPreset> presets;
     bool isStock = false; // derived from the slug, never read from JSON
 
@@ -81,29 +85,29 @@ struct PackDefinition
 };
 
 // ^[a-z0-9][a-z0-9-]{1,62}$
-bool isValidSlug(const juce::String& slug) noexcept;
+bool isValidSlug(const std::string& slug) noexcept;
 
 // "MAJOR.MINOR.PATCH", each a decimal integer without sign.
-bool isValidVersion(const juce::String& version) noexcept;
+bool isValidVersion(const std::string& version) noexcept;
 
 // <0, 0 or >0 like strcmp. Invalid versions sort before every valid one.
-int compareVersions(const juce::String& a, const juce::String& b) noexcept;
+int compareVersions(const std::string& a, const std::string& b) noexcept;
 
 // Parses and validates one pack document. On failure returns nullopt and sets
 // `error` to a short, developer-facing reason ("presets[2].triggerMap[5]: out
 // of range"); on success `error` is cleared.
-std::optional<PackDefinition> parse(const juce::String& json, juce::String& error);
-std::optional<PackDefinition> parse(const juce::MemoryBlock& utf8, juce::String& error);
+std::optional<PackDefinition> parse(const std::string& json, std::string& error);
+std::optional<PackDefinition> parse(const platform::Bytes& utf8, std::string& error);
 
 // Deterministic serialisation (stable key order, one trigger map per line),
 // so a pack written twice is byte-identical and its SHA-256 is reproducible.
-juce::String toJson(const PackDefinition& pack);
+std::string toJson(const PackDefinition& pack);
 
 // The stock pack built from ChordPresetSystem itself, so it is by
 // construction exactly the built-in maps.
 PackDefinition makeStockPack();
 
 // Lowercase hex SHA-256 of raw bytes (the digest the store publishes).
-juce::String sha256Hex(const juce::MemoryBlock& bytes);
-bool isValidSha256Hex(const juce::String& digest) noexcept;
+std::string sha256Hex(const platform::Bytes& bytes);
+bool isValidSha256Hex(const std::string& digest) noexcept;
 } // namespace chordengine::packs

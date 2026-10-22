@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>data</key>
+	<data>
+	</data>
+	<key>element-name</key>
+	<dict>
+		<key>2</key>
+		<dict>
+			<key>0</key>
+			<string>Output</string>
+		</dict>
+	</dict>
+	<key>jucePluginState</key>
+	<data>
+	PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCg0KPENIT1JERU5H
+	SU5FX1NUQVRFIHZlcnNpb249IjEiIGtleUluZGV4PSIwIiBzY2FsZT0ibWlub3IiIGNo
+	b3JkUHJlc2V0PSJkcmVhbXkiIHRyYW5zcG9zZVRhcmdldD0id2hvbGUiDQogICAgICAg
+	ICAgICAgICAgICAgdHJhbnNwb3NlT2N0YXZlPSIwIiB2ZWxvY2l0eU1vZGU9ImR5bmFt
+	aWMiIGZpeGVkVmVsb2NpdHk9IjEwMCINCiAgICAgICAgICAgICAgICAgICBpbnRlcm5h
+	bEF1ZGlvPSJvbiIgaW50ZXJuYWxTb3VuZD0ic3ludGgiIHJlY29yZFF1YW50aXplPSJu
+	b25lIg0KICAgICAgICAgICAgICAgICAgIGZvbGxvd0hvc3RSZWNvcmQ9Im9mZiIvPg0K
+	</data>
+	<key>manufacturer</key>
+	<integer>1299542883</integer>
+	<key>name</key>
+	<string>Untitled</string>
+	<key>subtype</key>
+	<integer>1130719598</integer>
+	<key>type</key>
+	<integer>1635085685</integer>
+	<key>version</key>
+	<integer>0</integer>
+</dict>
+</plist>

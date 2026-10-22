@@ -1,16 +1,18 @@
 // Plugin state persistence tests.
 //
-// These drive real processor and editor instances through getStateInformation /
+// These drive real processor instances through getStateInformation /
 // setStateInformation. They cover round trips, the malformed-payload policy,
-// MIDI output after a restore, instance independence and GUI re-synchronisation.
-// No DAW is involved.
+// MIDI output after a restore, instance independence and - the native 0.6
+// build's compatibility promise - the exact state bytes the shipped 0.5.1
+// AU and VST3 wrote (Tests/Fixtures/State051). The editor's re-sync after a
+// restore is covered by the editor tests. No DAW is involved.
 
-#include "PluginEditor.h"
-#include "PluginProcessor.h"
+#include "ProcessorTestSupport.h"
 #include "Core/ChordEngineCore.h"
 #include "State/PluginState.h"
+#include "State/XmlLite.h"
 
-#include <juce_core/juce_core.h>
+#include <cstring>
 
 #include <algorithm>
 #include <cstdlib>
@@ -18,12 +20,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-namespace juce
-{
-void juce_VerifyPlugin();
-void juce_VerifyPlugin() {}
-}
 
 namespace
 {
@@ -34,19 +30,10 @@ using Target = chordengine::core::TransposeTarget;
 using Mode = chordengine::core::VelocityMode;
 using NoteEvent = chordengine::midi::NoteEvent;
 
+using chordengine::test::require;
+using chordengine::test::str;
+
 int casesPassed = 0;
-
-[[noreturn]] void fail(const juce::String& message)
-{
-    std::cerr << "FAIL: " << message << '\n';
-    std::exit(EXIT_FAILURE);
-}
-
-void require(bool condition, const juce::String& message)
-{
-    if (!condition)
-        fail(message);
-}
 
 void casePassed(const char* name)
 {
@@ -62,18 +49,18 @@ bool sameConfiguration(const Config& a, const Config& b) noexcept
         && a.transpose.octaveSteps == b.transpose.octaveSteps;
 }
 
-juce::String describe(const Config& c)
+std::string describe(const Config& c)
 {
-    return "key=" + juce::String(c.keyIndex)
-        + " scale=" + juce::String(static_cast<int>(c.scale))
-        + " preset=" + juce::String(static_cast<int>(c.preset))
-        + " target=" + juce::String(static_cast<int>(c.transpose.target))
-        + " octave=" + juce::String(c.transpose.octaveSteps)
-        + " mode=" + juce::String(static_cast<int>(c.velocityMode))
-        + " fixed=" + juce::String(static_cast<int>(c.fixedVelocity));
+    return "key=" + str(c.keyIndex)
+        + " scale=" + str(static_cast<int>(c.scale))
+        + " preset=" + str(static_cast<int>(c.preset))
+        + " target=" + str(static_cast<int>(c.transpose.target))
+        + " octave=" + str(c.transpose.octaveSteps)
+        + " mode=" + str(static_cast<int>(c.velocityMode))
+        + " fixed=" + str(static_cast<int>(c.fixedVelocity));
 }
 
-void requireSame(const Config& actual, const Config& expected, const juce::String& context)
+void requireSame(const Config& actual, const Config& expected, const std::string& context)
 {
     require(sameConfiguration(actual, expected),
             context + ": expected " + describe(expected) + " but got " + describe(actual));
@@ -106,30 +93,18 @@ Config nonDefaultExpected()
 
 std::string serializeState(ChordEngineAudioProcessor& processor)
 {
-    juce::MemoryBlock block;
-    processor.getStateInformation(block);
-    return std::string(static_cast<const char*>(block.getData()), block.getSize());
+    return processor.getStateInformation();
 }
 
 void restoreState(ChordEngineAudioProcessor& processor, const std::string& payload)
 {
-    processor.setStateInformation(payload.data(), static_cast<int>(payload.size()));
+    processor.setStateInformation(payload.data(), payload.size());
 }
 
 // A valid version-1 payload with one attribute replaced.
 std::string payloadWith(const char* name, const char* value)
 {
     return std::string("<CHORDENGINE_STATE version=\"1\" ") + name + "=\"" + value + "\"/>";
-}
-
-juce::File temporaryStorageDirectory(const juce::String& name)
-{
-    auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                   .getChildFile("ChordEngine-StateTests")
-                   .getChildFile(name);
-    dir.deleteRecursively();
-    dir.createDirectory();
-    return dir;
 }
 
 // ------------------------------------------------------------- A / B / C / D
@@ -139,7 +114,7 @@ void testDefaultRoundTrip()
     ChordEngineAudioProcessor source;
     requireSame(source.configurationSnapshot(), Config {}, "fresh processor defaults");
     const auto payload = serializeState(source);
-    require(juce::String(payload.c_str()).contains("CHORDENGINE_STATE"),
+    require(payload.find("CHORDENGINE_STATE") != std::string::npos,
             "default: payload carries the state root");
 
     ChordEngineAudioProcessor restored;
@@ -156,10 +131,12 @@ void testNonDefaultRoundTrip()
     const auto payload = serializeState(source);
 
     // Only persistent musical fields may be written.
-    const juce::String text(payload.c_str());
+    std::string text = payload;
+    for (auto& c : text)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     for (const char* forbidden : { "license", "token", "update", "recorder", "sustain", "panic", "session" })
-        require(!text.containsIgnoreCase(forbidden),
-                juce::String("payload must not contain ") + forbidden);
+        require(text.find(forbidden) == std::string::npos,
+                std::string("payload must not contain ") + forbidden);
 
     ChordEngineAudioProcessor restored;
     restoreState(restored, payload);
@@ -181,7 +158,7 @@ void testFixedVelocityRoundTrip()
         const auto snapshot = restored.configurationSnapshot();
         require(snapshot.velocityMode == Mode::fixed, "fixed: mode survives");
         require(snapshot.fixedVelocity == velocity,
-                "fixed: velocity " + juce::String(velocity) + " must survive save/restore");
+                "fixed: velocity " + str(velocity) + " must survive save/restore");
     }
     casePassed("C fixed velocity 1, 64, 100 and 127 survive save/restore");
 }
@@ -200,8 +177,8 @@ void testTransposeRoundTrip()
             restoreState(restored, payload);
             const auto snapshot = restored.configurationSnapshot();
             require(snapshot.transpose.target == target && snapshot.transpose.octaveSteps == octave,
-                    "transpose: " + juce::String(static_cast<int>(target)) + "/"
-                        + juce::String(octave) + " must survive save/restore");
+                    "transpose: " + str(static_cast<int>(target)) + "/"
+                        + str(octave) + " must survive save/restore");
         }
     casePassed("D transpose targets WHOLE/LOWEST/HIGHEST and octaves -2..+2 survive save/restore");
 }
@@ -210,9 +187,9 @@ void testTransposeRoundTrip()
 
 void testMalformedPayloads()
 {
-    std::vector<std::pair<juce::String, std::string>> bad;
+    std::vector<std::pair<std::string, std::string>> bad;
     bad.push_back({ "empty payload", std::string() });
-    bad.push_back({ "binary garbage", std::string("\x01\x02\xff not xml", 13) });
+    bad.push_back({ "binary garbage", std::string("\x01\x02\xff not xml") });
     bad.push_back({ "truncated XML", "<CHORDENGINE_STATE version=\"1\" keyIndex=\"3\"" });
     bad.push_back({ "wrong root element", "<OTHER version=\"1\" keyIndex=\"3\"/>" });
     bad.push_back({ "missing version", "<CHORDENGINE_STATE keyIndex=\"3\"/>" });
@@ -234,7 +211,7 @@ void testMalformedPayloads()
         { "fixedVelocity", "300" }, { "fixedVelocity", "1x" }
     };
     for (const auto& [name, value] : invalidValues)
-        bad.push_back({ juce::String(name) + "=" + value, payloadWith(name, value) });
+        bad.push_back({ std::string(name) + "=" + value, payloadWith(name, value) });
 
     for (const auto& [label, payload] : bad)
     {
@@ -304,19 +281,14 @@ struct NoteOut
 std::vector<NoteOut> renderTrigger(ChordEngineAudioProcessor& processor, int note, int velocity)
 {
     processor.prepareToPlay(48000.0, 64);
-    juce::AudioBuffer<float> audio(2, 64);
-    audio.clear();
-    juce::MidiBuffer midi;
-    midi.addEvent(juce::MidiMessage::noteOn(1, note, static_cast<juce::uint8>(velocity)), 0);
-    processor.processBlock(audio, midi);
+    chordengine::test::AudioBuffer audio(2, 64);
+    auto midi = chordengine::test::events({ chordengine::test::noteOn(1, note, velocity) });
+    processor.processBlock(audio.block(), midi);
 
     std::vector<NoteOut> output;
-    for (const auto metadata : midi)
-    {
-        const auto message = metadata.getMessage();
+    for (const auto& message : midi)
         if (message.isNoteOn())
-            output.push_back({ message.getNoteNumber(), message.getVelocity() });
-    }
+            output.push_back({ message.noteNumber(), message.velocity() });
     return output;
 }
 
@@ -431,67 +403,95 @@ void testInstanceIndependence()
 
 // ------------------------------------------------------------------- H
 
-template <typename T>
-T& childAs(juce::Component& root, const char* componentId)
+// ------------------------------------------------------------------- H
+
+// Strips the private-data trailer the 0.5.1 VST3 appended (the VST3 adapter
+// does the same; this keeps the processor-level check self-contained).
+std::string withoutVst3Trailer(std::string bytes)
 {
-    auto* child = dynamic_cast<T*>(root.findChildWithID(componentId));
-    require(child != nullptr, juce::String("editor child missing: ") + componentId);
-    return *child;
+    static const std::string id = "JUCEPrivateData";
+    require(bytes.size() > id.size() + 16 && bytes.compare(bytes.size() - id.size(), id.size(), id) == 0,
+            "0.5.1 VST3 state ends with its private-data marker");
+    std::uint64_t privateSize = 0;
+    std::memcpy(&privateSize, bytes.data() + bytes.size() - id.size() - 8, 8);
+    bytes.resize(static_cast<std::size_t>(bytes.size() - (privateSize + id.size() + 16)));
+    return bytes;
 }
 
-void testGuiResyncAfterRestore()
+std::string fixture(const char* name)
 {
-    ChordEngineAudioProcessor source;
-    applyNonDefault(source);
-    const auto payload = serializeState(source);
+    return chordengine::test::readText(std::string(CHORDENGINE_FIXTURE_DIR) + "/State051/" + name);
+}
 
-    ChordEngineAudioProcessor processor;
-    ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("state-gui-sync"));
+void requireCustom051(ChordEngineAudioProcessor& processor, const std::string& context)
+{
+    Config expected;
+    expected.keyIndex = 3;
+    expected.scale = Scale::dorian;
+    expected.preset = Preset::neoSoul;
+    expected.transpose.target = Target::lowest;
+    expected.transpose.octaveSteps = -1;
+    expected.velocityMode = Mode::fixed;
+    expected.fixedVelocity = 77;
+    requireSame(processor.configurationSnapshot(), expected, context + ": configuration");
+    const auto pack = processor.packPreset();
+    require(pack.has_value(), context + ": pack preset restored");
+    require(pack->packSlug == "chordengine-test-pack" && pack->packName == "Test & Pack"
+                && pack->presetName == "Caf\xc3\xa9 \xe2\x99\xaf" && pack->preset.voicingStyle == "open",
+            context + ": pack identity and voicing (with character references) restored");
+    for (std::size_t index = 0; index < pack->preset.triggerMap.size(); ++index)
+        require(pack->preset.triggerMap[index] == (index * 11) % 70, context + ": pack trigger map restored");
+    require(processor.internalAudioEnabled(), context + ": internal audio on");
+    require(processor.internalSound() == ChordEngineAudioProcessor::InternalSound::bass, context + ": bass sound");
+    require(processor.recordQuantize() == chordengine::midi::TakeQuantize::thirdBeat, context + ": quantize 1/3 beat");
+    require(processor.followHostRecord(), context + ": FOLLOW DAW RECORD on");
+}
 
-    // Let the editor settle on the default state first.
-    juce::MessageManager::getInstance()->runDispatchLoopUntil(150);
-    require(childAs<juce::ComboBox>(editor, "scale-selector").getSelectedId()
-                == static_cast<int>(Config {}.scale) + 1,
-            "gui: starts on the default scale");
+void testState051Fixtures()
+{
+    // The exact bytes 0.5.1 wrote into a Logic project (AU) and into a VST3
+    // project, restored by this build.
+    for (const auto* name : { "au-midifx-custom.state", "au-instrument-custom.state" })
+    {
+        ChordEngineAudioProcessor processor;
+        const auto bytes = fixture(name);
+        restoreState(processor, bytes);
+        requireCustom051(processor, name);
 
-    restoreState(processor, payload);
-    // The 20 Hz editor timer must pick the restored values up without any user input.
-    juce::MessageManager::getInstance()->runDispatchLoopUntil(250);
+        // Written back by this build and restored again: nothing is lost.
+        ChordEngineAudioProcessor again;
+        restoreState(again, serializeState(processor));
+        requireCustom051(again, std::string(name) + " re-saved");
+    }
+    {
+        ChordEngineAudioProcessor processor;
+        restoreState(processor, withoutVst3Trailer(fixture("vst3-custom.state")));
+        requireCustom051(processor, "vst3-custom.state");
 
-    const auto expected = nonDefaultExpected();
-    require(childAs<juce::ComboBox>(editor, "key-selector").getSelectedId() == expected.keyIndex + 1,
-            "gui: key selector reflects the restored key");
-    require(childAs<juce::ComboBox>(editor, "scale-selector").getSelectedId()
-                == static_cast<int>(expected.scale) + 1,
-            "gui: scale selector reflects the restored scale");
-    require(childAs<juce::ComboBox>(editor, "chord-selector").getSelectedId()
-                == static_cast<int>(expected.preset) + 1,
-            "gui: chord preset selector reflects the restored preset");
-    require(childAs<juce::ComboBox>(editor, "velocity-mode-selector").getSelectedId()
-                == static_cast<int>(expected.velocityMode) + 1,
-            "gui: velocity mode selector reflects the restored mode");
-    require(static_cast<int>(childAs<juce::Slider>(editor, "fixed-velocity-slider").getValue())
-                == expected.fixedVelocity,
-            "gui: fixed velocity slider reflects the restored value");
-    require(childAs<juce::Label>(editor, "transpose-octave").getText() == "-1 OCT",
-            "gui: octave readout reflects the restored octave");
+        ChordEngineAudioProcessor defaults;
+        applyNonDefault(defaults);
+        restoreState(defaults, withoutVst3Trailer(fixture("vst3-default.state")));
+        requireSame(defaults.configurationSnapshot(), Config {}, "vst3-default.state restores the defaults");
+        require(!defaults.packPreset().has_value(), "vst3-default.state: no pack preset");
+    }
 
-    // Every persisted field shown by the controls, including the transpose
-    // target that has no combo box, must match the restored configuration.
-    requireSame(editor.displayedConfiguration(), expected,
-                "gui: displayed configuration matches the restored state");
-
-    // The GUI reads the processor and must never have become the source of truth.
-    requireSame(processor.configurationSnapshot(), expected, "gui: processor state is authoritative");
-    casePassed("H the editor re-syncs every restored control after setStateInformation");
+    // This build writes the same document 0.5.1 wrote: same root, version and
+    // attribute names, so 0.5.1 can read a project saved by this build.
+    {
+        ChordEngineAudioProcessor processor;
+        restoreState(processor, fixture("au-midifx-custom.state"));
+        const auto written = chordengine::state::parseXmlRoot(serializeState(processor));
+        const auto original = chordengine::state::parseXmlRoot(fixture("au-midifx-custom.state"));
+        require(written.has_value() && original.has_value(), "both documents parse");
+        require(written->tag == original->tag, "same root element");
+        require(written->attributes == original->attributes, "same attributes, values and order as 0.5.1");
+    }
+    casePassed("H the 0.5.1 AU and VST3 state bytes restore every field, and this build writes the same document");
 }
 } // namespace
 
 int main()
 {
-    const juce::ScopedJuceInitialiser_GUI guiInitialiser;
-    juce::ignoreUnused(guiInitialiser);
-
     testDefaultRoundTrip();
     testNonDefaultRoundTrip();
     testFixedVelocityRoundTrip();
@@ -500,7 +500,7 @@ int main()
     testIncompleteAndFuturePayloads();
     testMidiAfterRestore();
     testInstanceIndependence();
-    testGuiResyncAfterRestore();
+    testState051Fixtures();
 
     std::cout << "ChordEngine state persistence: " << casesPassed << " cases passed\n";
     return EXIT_SUCCESS;

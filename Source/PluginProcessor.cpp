@@ -1,7 +1,10 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
 #include "Licensing/MusicProdAuthService.h"
+#include "MIDI/MidiFileWriter.h"
+#include "Platform/Platform.h"
 
+#include <algorithm>
+#include <cmath>
 #include <thread>
 
 namespace
@@ -44,24 +47,22 @@ chordengine::core::CoreConfiguration decodeConfiguration(std::uint64_t bits) noe
 }
 
 ChordEngineAudioProcessor::ChordEngineAudioProcessor(bool withAudioOutput)
-    : juce::AudioProcessor(withAudioOutput
-                               ? BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)
-                               : BusesProperties()),
-      hasAudioOutput_(withAudioOutput)
+    : hasAudioOutput_(withAudioOutput)
 {
+    blockOutput_.reserve(midiEventCapacity);
     configurationBits_.store(encodeConfiguration(core_.configuration()), std::memory_order_relaxed);
 
     auto storageDir = defaultLicensingStorageDir();
    #if CHORDENGINE_ISOLATED_LICENSING
     // Test builds: every processor gets its own empty folder, so no test reads
     // the developer's account or shares a trial budget with another test.
-    storageDir = storageDir.getNonexistentChildFile("processor", {}, false);
+    storageDir = storageDir / ("processor-" + chordengine::platform::randomHex(8));
     isolatedLicensingDir_ = storageDir;
    #endif
     licensing_ = std::make_unique<chordengine::licensing::LicensingRuntime>(
         std::make_unique<chordengine::licensing::MusicProdAuthService>(),
         nullptr,
-        storageDir.getChildFile("auth.json"));
+        storageDir / "auth.json");
     licensing_->setGateSink([this](bool open) { setLicensingGateOpen(open); });
     licensing_->setPlaybackActivitySource([this] { return consumePlaybackActivity(); });
    #if !CHORDENGINE_ISOLATED_LICENSING
@@ -72,22 +73,21 @@ ChordEngineAudioProcessor::ChordEngineAudioProcessor(bool withAudioOutput)
 ChordEngineAudioProcessor::~ChordEngineAudioProcessor()
 {
     licensing_.reset();
-    if (isolatedLicensingDir_ != juce::File())
-        isolatedLicensingDir_.deleteRecursively();
+    if (!isolatedLicensingDir_.empty())
+    {
+        std::error_code error;
+        std::filesystem::remove_all(isolatedLicensingDir_, error);
+    }
 }
 
-juce::File ChordEngineAudioProcessor::defaultLicensingStorageDir()
+std::filesystem::path ChordEngineAudioProcessor::defaultLicensingStorageDir()
 {
    #if CHORDENGINE_ISOLATED_LICENSING
-    return juce::File::getSpecialLocation(juce::File::tempDirectory)
-        .getChildFile("ChordEngineTestLicensing");
+    return chordengine::platform::temporaryDirectory() / "ChordEngineTestLicensing";
    #else
     // The account token and the trial budget live next to the other
     // Music-Prod plugin state, in the same AppData location VYRE uses.
-    auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-    if (appData.getFileName() == "Library")
-        appData = appData.getChildFile("Application Support");
-    return appData.getChildFile("Music-Prod").getChildFile("ChordEngine");
+    return chordengine::platform::userApplicationDataDirectory() / "Music-Prod" / "ChordEngine";
    #endif
 }
 
@@ -127,10 +127,10 @@ bool ChordEngineAudioProcessor::setPackPreset(const PackPreset& preset)
 {
     if (!preset.preset.valid())
         return false;
-    {
-        const juce::SpinLock::ScopedLockType lock(packPresetLock_);
-        packPresetSelection_ = preset;
-    }
+    while (packPresetLock_.test_and_set(std::memory_order_acquire))
+        std::this_thread::yield();
+    packPresetSelection_ = preset;
+    packPresetLock_.clear(std::memory_order_release);
     while (customPresetAccess_.test_and_set(std::memory_order_acquire))
         std::this_thread::yield();
     pendingCustomPreset_ = preset.preset;
@@ -142,12 +142,13 @@ bool ChordEngineAudioProcessor::setPackPreset(const PackPreset& preset)
 
 void ChordEngineAudioProcessor::clearPackPreset()
 {
-    {
-        const juce::SpinLock::ScopedLockType lock(packPresetLock_);
-        if (!packPresetSelection_.has_value())
-            return;
-        packPresetSelection_.reset();
-    }
+    while (packPresetLock_.test_and_set(std::memory_order_acquire))
+        std::this_thread::yield();
+    const bool had = packPresetSelection_.has_value();
+    packPresetSelection_.reset();
+    packPresetLock_.clear(std::memory_order_release);
+    if (!had)
+        return;
     while (customPresetAccess_.test_and_set(std::memory_order_acquire))
         std::this_thread::yield();
     pendingCustomPresetActive_ = false;
@@ -157,8 +158,11 @@ void ChordEngineAudioProcessor::clearPackPreset()
 
 std::optional<ChordEngineAudioProcessor::PackPreset> ChordEngineAudioProcessor::packPreset() const
 {
-    const juce::SpinLock::ScopedLockType lock(packPresetLock_);
-    return packPresetSelection_;
+    while (packPresetLock_.test_and_set(std::memory_order_acquire))
+        std::this_thread::yield();
+    auto selection = packPresetSelection_;
+    packPresetLock_.clear(std::memory_order_release);
+    return selection;
 }
 
 void ChordEngineAudioProcessor::applyCustomPresetFromAudioThread() noexcept
@@ -336,10 +340,7 @@ void ChordEngineAudioProcessor::followHostRecording() noexcept
     // the DAW stops the take is stored. A take the user armed by hand is left
     // to them. Recording counts only while the transport runs, because some
     // hosts (FL Studio) report their record switch while stopped.
-    bool hostRecording = false;
-    if (const auto* playHead = getPlayHead())
-        if (const auto position = playHead->getPosition())
-            hostRecording = position->getIsRecording() && position->getIsPlaying();
+    const bool hostRecording = transport_.isRecording && transport_.isPlaying;
     if (!followHostRecord_.load(std::memory_order_acquire))
     {
         // Switching the mode off hands a host-armed take to the user; switching
@@ -414,7 +415,7 @@ bool ChordEngineAudioProcessor::finalizeRecorderTake() noexcept
             break;
         }
         RecorderMidiEvent releaseEvent;
-        releaseEvent.tick = juce::jmax(note.startTick + 12, stopTick);
+        releaseEvent.tick = std::max(note.startTick + 12, stopTick);
         releaseEvent.channel = static_cast<std::uint8_t>(note.channel);
         releaseEvent.note = static_cast<std::uint8_t>(note.note);
         recorderEventBuffer_[recorderEventCount_++] = releaseEvent;
@@ -448,8 +449,7 @@ bool ChordEngineAudioProcessor::finalizeRecorderTake() noexcept
     return true;
 }
 
-bool ChordEngineAudioProcessor::exportRecorderTake(std::uint8_t newestFirstIndex,
-                                                   juce::File& destination) const
+std::optional<std::string> ChordEngineAudioProcessor::exportRecorderTakeBytes(std::uint8_t newestFirstIndex) const
 {
     // Copy the take out under the take lock (the audio thread takes it when
     // the host stops recording), then quantize and write without holding it.
@@ -462,11 +462,10 @@ bool ChordEngineAudioProcessor::exportRecorderTake(std::uint8_t newestFirstIndex
     int timeSignatureDenominator = 4;
     while (recorderTakeAccess_.test_and_set(std::memory_order_acquire))
         std::this_thread::yield();
-    if (newestFirstIndex >= recorderTakeCountInternal_.load(std::memory_order_relaxed)
-        || destination == juce::File{})
+    if (newestFirstIndex >= recorderTakeCountInternal_.load(std::memory_order_relaxed))
     {
         recorderTakeAccess_.clear(std::memory_order_release);
-        return false;
+        return std::nullopt;
     }
     const auto& take = recorderTakes_[newestFirstIndex];
     for (std::size_t index = 0; index < take.eventCount; ++index)
@@ -481,29 +480,20 @@ bool ChordEngineAudioProcessor::exportRecorderTake(std::uint8_t newestFirstIndex
     recorderTakeAccess_.clear(std::memory_order_release);
 
     events = chordengine::midi::quantizeTake(events, recordQuantize(), anchor);
-
-    juce::MidiMessageSequence sequence;
-    sequence.addEvent(juce::MidiMessage::tempoMetaEvent(static_cast<int>(60000000.0 / tempoBpm)), 0.0);
-    sequence.addEvent(juce::MidiMessage::timeSignatureMetaEvent(timeSignatureNumerator,
-                                                                timeSignatureDenominator), 0.0);
-    for (const auto& event : events)
-    {
-        const auto message = event.noteOn
-            ? juce::MidiMessage::noteOn(event.channel, event.note, static_cast<juce::uint8>(event.velocity))
-            : juce::MidiMessage::noteOff(event.channel, event.note);
-        sequence.addEvent(juce::MidiMessage(message, static_cast<double>(event.tick)));
-    }
-    sequence.updateMatchedPairs();
-    juce::MidiFile midiFile;
-    midiFile.setTicksPerQuarterNote(static_cast<short>(chordengine::midi::takeTicksPerQuarterNote));
-    midiFile.addTrack(sequence);
-    juce::FileOutputStream output(destination);
-    const bool success = output.openedOk() && midiFile.writeTo(output);
-    output.flush();
-    return success && !output.getStatus().failed();
+    return chordengine::midi::writeTakeMidiFile(events, tempoBpm, timeSignatureNumerator,
+                                                timeSignatureDenominator);
 }
 
-void ChordEngineAudioProcessor::captureRecorderGridAnchor(const juce::AudioPlayHead::PositionInfo& position,
+bool ChordEngineAudioProcessor::exportRecorderTake(std::uint8_t newestFirstIndex,
+                                                   const std::filesystem::path& destination) const
+{
+    if (destination.empty())
+        return false;
+    const auto bytes = exportRecorderTakeBytes(newestFirstIndex);
+    return bytes.has_value() && chordengine::platform::writeFileAtomically(destination, *bytes);
+}
+
+void ChordEngineAudioProcessor::captureRecorderGridAnchor(const HostTransport& position,
                                                           int sampleOffset) noexcept
 {
     // Audio thread, at the take's first note. Records where that note falls
@@ -514,35 +504,36 @@ void ChordEngineAudioProcessor::captureRecorderGridAnchor(const juce::AudioPlayH
     recorderAnchor_ = {};
     recorderTimeSignatureNumerator_ = 4;
     recorderTimeSignatureDenominator_ = 4;
-    if (const auto signature = position.getTimeSignature())
-        if (signature->numerator > 0 && signature->denominator > 0)
-        {
-            recorderTimeSignatureNumerator_ = signature->numerator;
-            recorderTimeSignatureDenominator_ = signature->denominator;
-        }
+    if (position.timeSignatureNumerator.has_value() && position.timeSignatureDenominator.has_value()
+        && *position.timeSignatureNumerator > 0 && *position.timeSignatureDenominator > 0)
+    {
+        recorderTimeSignatureNumerator_ = *position.timeSignatureNumerator;
+        recorderTimeSignatureDenominator_ = *position.timeSignatureDenominator;
+    }
     const auto quarterNotesPerBar = 4.0 * recorderTimeSignatureNumerator_ / recorderTimeSignatureDenominator_;
-    recorderAnchor_.barTicks = juce::jmax<std::int64_t>(
-        1, juce::roundToInt(quarterNotesPerBar * static_cast<double>(chordengine::midi::takeTicksPerQuarterNote)));
+    recorderAnchor_.barTicks = std::max<std::int64_t>(
+        1, static_cast<std::int64_t>(std::floor(quarterNotesPerBar
+                                                * static_cast<double>(chordengine::midi::takeTicksPerQuarterNote) + 0.5)));
 
-    const auto ppq = position.getPpqPosition();
-    const auto bpm = position.getBpm().orFallback(0.0);
-    if (!position.getIsPlaying() || !ppq.hasValue() || bpm <= 0.0)
+    const auto& ppq = position.ppqPosition;
+    const auto bpm = position.bpm.value_or(0.0);
+    if (!position.isPlaying || !ppq.has_value() || bpm <= 0.0)
         return;
     // The block's position plus the note's offset into the block.
     const auto notePpq = *ppq + static_cast<double>(sampleOffset) * bpm
-                                    / (60.0 * juce::jmax(1.0, recorderSampleRate_));
+                                    / (60.0 * std::max(1.0, recorderSampleRate_));
     double offsetInBar = 0.0;
-    if (const auto barStart = position.getPpqPositionOfLastBarStart(); barStart.hasValue() && *barStart <= notePpq)
+    if (const auto& barStart = position.ppqPositionOfLastBarStart; barStart.has_value() && *barStart <= notePpq)
         offsetInBar = notePpq - *barStart;
     else
         offsetInBar = notePpq - std::floor(notePpq / quarterNotesPerBar) * quarterNotesPerBar;
     // A bar-start report that lags across a bar line folds back into the bar.
-    offsetInBar = std::fmod(juce::jmax(0.0, offsetInBar), quarterNotesPerBar);
+    offsetInBar = std::fmod(std::max(0.0, offsetInBar), quarterNotesPerBar);
     recorderAnchor_.known = true;
     recorderAnchor_.offsetTicks = static_cast<std::int64_t>(
         std::llround(offsetInBar * static_cast<double>(chordengine::midi::takeTicksPerQuarterNote)));
-    recorderAnchor_.offsetTicks = juce::jlimit<std::int64_t>(0, recorderAnchor_.barTicks - 1,
-                                                             recorderAnchor_.offsetTicks);
+    recorderAnchor_.offsetTicks = std::clamp<std::int64_t>(recorderAnchor_.offsetTicks, 0,
+                                                           recorderAnchor_.barTicks - 1);
 }
 
 int ChordEngineAudioProcessor::recorderTakeNoteCount(std::uint8_t newestFirstIndex) const noexcept
@@ -576,12 +567,8 @@ void ChordEngineAudioProcessor::recordGeneratedEvent(const chordengine::midi::No
         recorderStartSample_ = static_cast<std::int64_t>(processedSampleCount_.load(std::memory_order_relaxed))
             + event.sampleOffset;
         recorderAnchor_ = {};
-        if (const auto* playHead = getPlayHead())
-            if (const auto position = playHead->getPosition())
-            {
-                recorderTempoBpm_ = position->getBpm().orFallback(120.0);
-                captureRecorderGridAnchor(*position, event.sampleOffset);
-            }
+        recorderTempoBpm_ = transport_.bpm.value_or(120.0);
+        captureRecorderGridAnchor(transport_, event.sampleOffset);
         if (recorderTempoBpm_ <= 0.0)
             recorderTempoBpm_ = 120.0;
         recorderEventCount_ = 0;
@@ -610,10 +597,10 @@ void ChordEngineAudioProcessor::recordGeneratedEvent(const chordengine::midi::No
 
     const auto absoluteSample = static_cast<std::int64_t>(processedSampleCount_.load(std::memory_order_relaxed))
         + event.sampleOffset;
-    const auto sampleDelta = juce::jmax<std::int64_t>(0, absoluteSample - recorderStartSample_);
+    const auto sampleDelta = std::max<std::int64_t>(0, absoluteSample - recorderStartSample_);
     const auto computedTicks = static_cast<std::int64_t>(static_cast<double>(sampleDelta)
-        * recorderTempoBpm_ * 960.0 / (60.0 * juce::jmax(1.0, recorderSampleRate_)));
-    const auto ticks = juce::jmax(recorderLastTick_, computedTicks);
+        * recorderTempoBpm_ * 960.0 / (60.0 * std::max(1.0, recorderSampleRate_)));
+    const auto ticks = std::max(recorderLastTick_, computedTicks);
     recorderLastTick_ = ticks;
     const bool noteOn = event.kind == chordengine::midi::NoteEvent::Kind::noteOn;
     RecorderMidiEvent capturedEvent;
@@ -802,7 +789,8 @@ void ChordEngineAudioProcessor::clearOutputNoteStates() noexcept
 
 void ChordEngineAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    internalSynth_.prepare(sampleRate > 0.0 ? sampleRate : 44100.0, juce::jmax(1, samplesPerBlock));
+    internalSynth_.prepare(sampleRate > 0.0 ? sampleRate : 44100.0, std::max(1, samplesPerBlock));
+    blockOutput_.reserve(midiEventCapacity);
     internalAudioWasEnabled_ = false;
     resetRecorderForPlaybackBoundary();
     // A new playback session: re-verify the account in the background, so a
@@ -814,7 +802,7 @@ void ChordEngineAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     processedSampleCount_.store(0, std::memory_order_relaxed);
     tracker_.reset();
     core_.reset();
-    uiMidiFifo_.reset();
+    uiMidiRead_.store(uiMidiWrite_.load(std::memory_order_acquire), std::memory_order_release);
     clearOutputNoteStates();
     for (std::size_t channel = 0; channel < 16; ++channel)
     {
@@ -858,20 +846,25 @@ void ChordEngineAudioProcessor::releaseResources()
 // mode, transpose, recorder capture) is made by the SAME Core pass that an
 // external keyboard drives. These three functions are the only GUI-thread
 // entry points on the audio path and they are lock-free.
+void ChordEngineAudioProcessor::pushUiEvent(const UiMidiEvent& event) noexcept
+{
+    const auto write = uiMidiWrite_.load(std::memory_order_relaxed);
+    const auto next = (write + 1) % uiMidiQueueCapacity;
+    if (next == uiMidiRead_.load(std::memory_order_acquire))
+        return; // full: the key event is dropped, as the 0.5 FIFO did
+    uiMidiEvents_[static_cast<std::size_t>(write)] = event;
+    uiMidiWrite_.store(next, std::memory_order_release);
+}
+
 void ChordEngineAudioProcessor::pushUiNoteOn(int channel, int note, int velocity) noexcept
 {
     if (note < 0 || note > 127)
         return;
 
-    const auto scope = uiMidiFifo_.write(1);
-    const UiMidiEvent event { static_cast<std::uint8_t>(juce::jlimit(1, 16, channel)),
-                              static_cast<std::uint8_t>(note),
-                              static_cast<std::uint8_t>(juce::jlimit(1, 127, velocity)),
-                              true };
-    if (scope.blockSize1 > 0)
-        uiMidiEvents_[static_cast<std::size_t>(scope.startIndex1)] = event;
-    else if (scope.blockSize2 > 0)
-        uiMidiEvents_[static_cast<std::size_t>(scope.startIndex2)] = event;
+    pushUiEvent({ static_cast<std::uint8_t>(std::clamp(channel, 1, 16)),
+                  static_cast<std::uint8_t>(note),
+                  static_cast<std::uint8_t>(std::clamp(velocity, 1, 127)),
+                  true });
 }
 
 void ChordEngineAudioProcessor::pushUiNoteOff(int channel, int note) noexcept
@@ -879,116 +872,85 @@ void ChordEngineAudioProcessor::pushUiNoteOff(int channel, int note) noexcept
     if (note < 0 || note > 127)
         return;
 
-    const auto scope = uiMidiFifo_.write(1);
-    const UiMidiEvent event { static_cast<std::uint8_t>(juce::jlimit(1, 16, channel)),
-                              static_cast<std::uint8_t>(note), 0, false };
-    if (scope.blockSize1 > 0)
-        uiMidiEvents_[static_cast<std::size_t>(scope.startIndex1)] = event;
-    else if (scope.blockSize2 > 0)
-        uiMidiEvents_[static_cast<std::size_t>(scope.startIndex2)] = event;
+    pushUiEvent({ static_cast<std::uint8_t>(std::clamp(channel, 1, 16)),
+                  static_cast<std::uint8_t>(note), 0, false });
 }
 
-void ChordEngineAudioProcessor::drainUiMidi(juce::MidiBuffer& destination) noexcept
+void ChordEngineAudioProcessor::drainUiMidi(chordengine::midi::MidiEventList& destination) noexcept
 {
-    for (;;)
+    auto read = uiMidiRead_.load(std::memory_order_relaxed);
+    const auto write = uiMidiWrite_.load(std::memory_order_acquire);
+    while (read != write)
     {
-        int index = -1;
-        {
-            const auto scope = uiMidiFifo_.read(1);
-            if (scope.blockSize1 > 0)
-                index = scope.startIndex1;
-            else if (scope.blockSize2 > 0)
-                index = scope.startIndex2;
-        }
-
-        if (index < 0)
-            break;
-
-        const auto& event = uiMidiEvents_[static_cast<std::size_t>(index)];
-        destination.addEvent(event.noteOn
-                                 ? juce::MidiMessage::noteOn(event.channel, event.note, event.velocity)
-                                 : juce::MidiMessage::noteOff(event.channel, event.note),
-                             0);
+        const auto& event = uiMidiEvents_[static_cast<std::size_t>(read)];
+        destination.add(event.noteOn
+                            ? chordengine::midi::MidiEvent::noteOn(0, event.channel, event.note, event.velocity)
+                            : chordengine::midi::MidiEvent::noteOff(0, event.channel, event.note));
+        read = (read + 1) % uiMidiQueueCapacity;
     }
+    uiMidiRead_.store(read, std::memory_order_release);
 }
 
-bool ChordEngineAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+void ChordEngineAudioProcessor::processBlock(const chordengine::audio::AudioBlock& audio,
+                                             chordengine::midi::MidiEventList& midi,
+                                             const HostTransport& transport)
 {
-    // The MIDI FX AU owns NO audio bus: that is what makes it an `aumi` MIDI
-    // FX, and Logic Pro takes no audio from that slot anyway. The VST3 and the
-    // ChordEngine Instrument AU have one output (no input) for the internal
-    // synth; it is silent while internal audio is off.
-    if (!hasAudioOutput_)
-        return layouts.inputBuses.isEmpty() && layouts.outputBuses.isEmpty();
-    if (!layouts.inputBuses.isEmpty() || layouts.outputBuses.size() != 1)
-        return false;
-    const auto output = layouts.getMainOutputChannelSet();
-    return output == juce::AudioChannelSet::stereo() || output == juce::AudioChannelSet::mono();
-}
-
-void ChordEngineAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
-                                             juce::MidiBuffer& midi)
-{
-    juce::ScopedNoDenormals noDenormals;
-    juce::ignoreUnused(noDenormals);
+    using chordengine::midi::MidiEvent;
+    const chordengine::audio::ScopedNoDenormals noDenormals;
+    transport_ = transport;
     syncStateFromAudioThread();
     followHostRecording();
     // Merge any on-screen keyboard events into this block BEFORE the Core pass
     // so a piano key is indistinguishable from an external MIDI note.
     drainUiMidi(midi);
-    juce::MidiBuffer output;
+    auto& output = blockOutput_;
+    output.clear();
     auto& result = coreResult_;
-    for (const auto metadata : midi)
+    for (const auto& message : midi)
     {
-        const auto message = metadata.getMessage();
         chordengine::midi::NoteEvent event;
-        event.channel = static_cast<std::uint8_t>(message.getChannel());
-        event.sampleOffset = metadata.samplePosition;
+        event.channel = static_cast<std::uint8_t>(message.channel());
+        event.sampleOffset = message.sampleOffset;
+        const auto type = message.status() & 0xF0;
         bool recognized = true;
         if (message.isNoteOn())
         {
             event.kind = chordengine::midi::NoteEvent::Kind::noteOn;
-            event.note = static_cast<std::uint8_t>(message.getNoteNumber());
-            event.velocity = message.getVelocity();
+            event.note = static_cast<std::uint8_t>(message.noteNumber());
+            event.velocity = static_cast<std::uint8_t>(message.velocity());
         }
         else if (message.isNoteOff())
         {
             event.kind = chordengine::midi::NoteEvent::Kind::noteOff;
-            event.note = static_cast<std::uint8_t>(message.getNoteNumber());
+            event.note = static_cast<std::uint8_t>(message.noteNumber());
         }
         else if (message.isController())
         {
             event.kind = chordengine::midi::NoteEvent::Kind::controller;
-            event.controller = static_cast<std::uint8_t>(message.getControllerNumber());
-            event.value = static_cast<std::uint8_t>(message.getControllerValue());
+            event.controller = static_cast<std::uint8_t>(message.controllerNumber());
+            event.value = static_cast<std::uint8_t>(message.controllerValue());
         }
-        else if (message.isPitchWheel())
+        else if (type == 0xE0 && message.size == 3)
         {
             event.kind = chordengine::midi::NoteEvent::Kind::pitchBend;
-            event.data = static_cast<std::uint16_t>(message.getPitchWheelValue());
+            event.data = static_cast<std::uint16_t>(message.bytes[1] | (message.bytes[2] << 7));
         }
-        else if (message.isAftertouch())
+        else if (type == 0xA0 && message.size == 3)
         {
             event.kind = chordengine::midi::NoteEvent::Kind::aftertouch;
-            event.note = static_cast<std::uint8_t>(message.getNoteNumber());
-            event.value = static_cast<std::uint8_t>(message.getAfterTouchValue());
+            event.note = static_cast<std::uint8_t>(message.noteNumber());
+            event.value = static_cast<std::uint8_t>(message.bytes[2]);
         }
-        else if (message.isProgramChange())
+        else if (type == 0xC0 && message.size >= 2)
         {
             event.kind = chordengine::midi::NoteEvent::Kind::programChange;
-            event.data = static_cast<std::uint16_t>(message.getProgramChangeNumber());
-        }
-        else if (message.isAllNotesOff() || message.isAllSoundOff())
-        {
-            event.kind = chordengine::midi::NoteEvent::Kind::controller;
-            event.controller = message.isAllNotesOff() ? 123 : 120;
-            event.value = static_cast<std::uint8_t>(message.getControllerValue());
+            event.data = static_cast<std::uint16_t>(message.bytes[1]);
         }
         else
             recognized = false;
         if (!recognized)
         {
-            output.addEvent(message, metadata.samplePosition);
+            output.add(message);
             continue;
         }
         // Expired unlicensed trial: the reference swallows the raw trigger
@@ -1001,7 +963,7 @@ void ChordEngineAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
         updateNoteState(event);
         tracker_.observe(event);
         if (!result.suppressInput)
-            output.addEvent(message, metadata.samplePosition);
+            output.add(message);
         for (std::size_t index = 0; index < result.eventCount; ++index)
         {
             const auto& generated = result.events[index];
@@ -1012,23 +974,23 @@ void ChordEngineAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
             if (generated.kind == chordengine::midi::NoteEvent::Kind::noteOn)
             {
                 playbackActivityPending_.store(true, std::memory_order_relaxed);
-                output.addEvent(juce::MidiMessage::noteOn(generated.channel, generated.note,
-                    static_cast<juce::uint8>(generated.velocity)), generated.sampleOffset);
+                output.add(MidiEvent::noteOn(generated.sampleOffset, generated.channel, generated.note,
+                                             generated.velocity));
             }
             else if (generated.kind == chordengine::midi::NoteEvent::Kind::noteOff)
-                output.addEvent(juce::MidiMessage::noteOff(generated.channel, generated.note), generated.sampleOffset);
+                output.add(MidiEvent::noteOff(generated.sampleOffset, generated.channel, generated.note));
         }
     }
-    midi.swapWith(output);
-    processedSampleCount_.fetch_add(static_cast<std::uint64_t>(audio.getNumSamples()), std::memory_order_relaxed);
+    midi.swap(output);
+    processedSampleCount_.fetch_add(static_cast<std::uint64_t>(audio.numSamples), std::memory_order_relaxed);
     audio.clear();
     renderInternalAudio(audio, midi);
 }
 
-void ChordEngineAudioProcessor::renderInternalAudio(juce::AudioBuffer<float>& audio,
-                                                    const juce::MidiBuffer& generated) noexcept
+void ChordEngineAudioProcessor::renderInternalAudio(const chordengine::audio::AudioBlock& audio,
+                                                    const chordengine::midi::MidiEventList& generated) noexcept
 {
-    if (!hasAudioOutput_ || audio.getNumChannels() == 0)
+    if (!hasAudioOutput_ || audio.numChannels == 0)
         return;
     const bool enabled = internalAudioEnabled_.load(std::memory_order_acquire);
     if (enabled != internalAudioWasEnabled_)
@@ -1043,36 +1005,25 @@ void ChordEngineAudioProcessor::renderInternalAudio(juce::AudioBuffer<float>& au
     if (enabled)
         internalSynth_.process(audio, generated);
     else if (!internalSynth_.isSilent())
-        internalSynth_.render(audio, 0, audio.getNumSamples());
+        internalSynth_.render(audio, 0, audio.numSamples);
 }
 
-juce::AudioProcessorEditor* ChordEngineAudioProcessor::createEditor()
-{
-    return new ChordEngineAudioProcessorEditor(*this);
-}
-
-void ChordEngineAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
+std::string ChordEngineAudioProcessor::getStateInformation() const
 {
     // Only the persistent musical configuration is written; see PluginState.h.
-    const auto utf8 = chordengine::state::serialize(stateSnapshot()).toStdString();
-    destination.replaceAll(utf8.data(), utf8.size());
+    return chordengine::state::serialize(stateSnapshot());
 }
 
-void ChordEngineAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
+void ChordEngineAudioProcessor::setStateInformation(const void* data, std::size_t sizeInBytes)
 {
-    if (data == nullptr || sizeInBytes <= 0)
+    if (data == nullptr || sizeInBytes == 0)
         return;
 
     // A malformed or incompatible payload yields no state at all, so the
     // current valid configuration stays in force.
-    const auto restored = chordengine::state::deserialize(data, static_cast<std::size_t>(sizeInBytes));
+    const auto restored = chordengine::state::deserialize(data, sizeInBytes);
     if (!restored.has_value())
         return;
 
     applyState(*restored);
-}
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
-{
-    return new ChordEngineAudioProcessor();
 }

@@ -1,4 +1,7 @@
 #include "PluginState.h"
+#include "XmlLite.h"
+
+#include "../Platform/Text.h"
 
 #include "../Core/ChordPresetSystem.h"
 #include "../Core/ScaleSystem.h"
@@ -44,7 +47,7 @@ static_assert(scaleTokens.size() == chordengine::core::ScaleSystem::scaleCount,
 
 template <std::size_t N>
 std::optional<std::size_t> tokenIndex(const std::array<const char*, N>& tokens,
-                                      const juce::String& value)
+                                      const std::string& value)
 {
     for (std::size_t index = 0; index < N; ++index)
         if (value == tokens[index])
@@ -54,70 +57,71 @@ std::optional<std::size_t> tokenIndex(const std::array<const char*, N>& tokens,
 
 // Strict integer: optional leading minus, digits only, at most four characters.
 // Rejects empty text, whitespace and trailing junk instead of guessing.
-std::optional<int> parseInteger(const juce::String& value)
+std::optional<int> parseInteger(const std::string& value)
 {
-    const int length = value.length();
+    const auto length = value.size();
     if (length == 0 || length > 4)
         return std::nullopt;
 
-    const int firstDigit = value[0] == '-' ? 1 : 0;
+    const std::size_t firstDigit = value[0] == '-' ? 1 : 0;
     if (firstDigit == length)
         return std::nullopt;
 
-    for (int index = firstDigit; index < length; ++index)
+    for (std::size_t index = firstDigit; index < length; ++index)
         if (value[index] < '0' || value[index] > '9')
             return std::nullopt;
 
-    return value.getIntValue();
+    return std::stoi(value);
 }
 
 // Known-property reader. An absent property keeps the default already in
 // place. A present property must parse and be accepted by `apply`; otherwise
 // the whole payload is rejected.
 template <typename Apply>
-bool readField(const juce::XmlElement& root, const char* name, Apply&& apply)
+bool readField(const XmlElementLite& root, const char* name, Apply&& apply)
 {
-    if (!root.hasAttribute(name))
+    if (!root.has(name))
         return true;
-    return apply(root.getStringAttribute(name));
+    return apply(root.get(name));
 }
 
 // Pack identity fields: a slug as the store issues them, and display names
 // of printable text that fit the editor.
-bool validSlug(const juce::String& value)
+bool validSlug(const std::string& value)
 {
-    if (value.length() < 2 || value.length() > 63 || value[0] == '-')
+    if (value.size() < 2 || value.size() > 63 || value[0] == '-')
         return false;
-    return value.containsOnly("abcdefghijklmnopqrstuvwxyz0123456789-");
+    return text::containsOnly(value, "abcdefghijklmnopqrstuvwxyz0123456789-");
 }
 
-bool validName(const juce::String& value)
+bool validName(const std::string& value)
 {
-    if (value.isEmpty() || value.length() > 64)
+    const auto characters = text::codePoints(value);
+    if (characters.empty() || characters.size() > 64)
         return false;
-    for (const auto character : value)
+    for (const auto character : characters)
         if (character < 0x20 || character == 0x7f)
             return false;
     return true;
 }
 
 // The trigger map is persisted as two lower-case hex digits per code.
-juce::String encodeTriggerMap(const chordengine::core::CustomChordPreset& preset)
+std::string encodeTriggerMap(const chordengine::core::CustomChordPreset& preset)
 {
-    juce::String text;
+    std::string encoded;
     for (const auto code : preset.triggerMap)
-        text << juce::String::toHexString(static_cast<int>(code)).paddedLeft('0', 2);
-    return text;
+        encoded += text::hex2(code);
+    return encoded;
 }
 
-bool decodeTriggerMap(const juce::String& text, chordengine::core::CustomChordPreset& preset)
+bool decodeTriggerMap(const std::string& encoded, chordengine::core::CustomChordPreset& preset)
 {
-    if (text.length() != static_cast<int>(2 * preset.triggerMap.size())
-        || !text.containsOnly("0123456789abcdef"))
+    if (encoded.size() != 2 * preset.triggerMap.size()
+        || !text::containsOnly(encoded, "0123456789abcdef"))
         return false;
     for (std::size_t index = 0; index < preset.triggerMap.size(); ++index)
         preset.triggerMap[index] = static_cast<std::uint8_t>(
-            text.substring(static_cast<int>(2 * index), static_cast<int>(2 * index + 2)).getHexValue32());
+            text::hexDigit(encoded[2 * index]) * 16 + text::hexDigit(encoded[2 * index + 1]));
     return true;
 }
 
@@ -132,38 +136,40 @@ bool isValid(const CoreConfiguration& configuration) noexcept
 }
 } // namespace
 
-juce::String serialize(const PluginState& state)
+std::string serialize(const PluginState& state)
 {
     const auto& configuration = state.configuration;
 
-    juce::XmlElement root(rootTag);
-    root.setAttribute("version", currentFormatVersion);
-    root.setAttribute("keyIndex", configuration.keyIndex);
-    root.setAttribute("scale", scaleTokens[static_cast<std::size_t>(configuration.scale)]);
-    root.setAttribute("chordPreset", presetTokens[static_cast<std::size_t>(configuration.preset)]);
-    root.setAttribute("transposeTarget", targetTokens[static_cast<std::size_t>(configuration.transpose.target)]);
-    root.setAttribute("transposeOctave", configuration.transpose.octaveSteps);
-    root.setAttribute("velocityMode", velocityTokens[static_cast<std::size_t>(configuration.velocityMode)]);
-    root.setAttribute("fixedVelocity", static_cast<int>(configuration.fixedVelocity));
+    XmlElementLite root;
+    root.tag = rootTag;
+    root.set("version", std::to_string(currentFormatVersion));
+    root.set("keyIndex", std::to_string(configuration.keyIndex));
+    root.set("scale", scaleTokens[static_cast<std::size_t>(configuration.scale)]);
+    root.set("chordPreset", presetTokens[static_cast<std::size_t>(configuration.preset)]);
+    root.set("transposeTarget", targetTokens[static_cast<std::size_t>(configuration.transpose.target)]);
+    root.set("transposeOctave", std::to_string(configuration.transpose.octaveSteps));
+    root.set("velocityMode", velocityTokens[static_cast<std::size_t>(configuration.velocityMode)]);
+    root.set("fixedVelocity", std::to_string(static_cast<int>(configuration.fixedVelocity)));
     if (state.packPreset.has_value())
     {
         const auto& pack = *state.packPreset;
-        root.setAttribute("packSlug", pack.packSlug);
-        root.setAttribute("packName", pack.packName);
-        root.setAttribute("packPreset", pack.presetName);
-        root.setAttribute("packVoicing", juce::String(pack.preset.voicingStyle.data(),
-                                                      pack.preset.voicingStyle.size()));
-        root.setAttribute("packMap", encodeTriggerMap(pack.preset));
+        root.set("packSlug", pack.packSlug);
+        root.set("packName", pack.packName);
+        root.set("packPreset", pack.presetName);
+        root.set("packVoicing", std::string(pack.preset.voicingStyle.data(), pack.preset.voicingStyle.size()));
+        root.set("packMap", encodeTriggerMap(pack.preset));
     }
     if (state.internalAudioEnabled.has_value())
-        root.setAttribute("internalAudio", switchTokens[*state.internalAudioEnabled ? 1 : 0]);
+        root.set("internalAudio", switchTokens[*state.internalAudioEnabled ? 1 : 0]);
     if (state.internalSound.has_value())
-        root.setAttribute("internalSound", soundTokens[static_cast<std::size_t>(*state.internalSound)]);
+        root.set("internalSound", soundTokens[static_cast<std::size_t>(*state.internalSound)]);
     if (state.recordQuantize.has_value())
-        root.setAttribute("recordQuantize", quantizeTokens[static_cast<std::size_t>(*state.recordQuantize)]);
+        root.set("recordQuantize", quantizeTokens[static_cast<std::size_t>(*state.recordQuantize)]);
     if (state.followHostRecord.has_value())
-        root.setAttribute("followHostRecord", switchTokens[*state.followHostRecord ? 1 : 0]);
-    return root.toString();
+        root.set("followHostRecord", switchTokens[*state.followHostRecord ? 1 : 0]);
+    if (state.hostBypass.has_value() && *state.hostBypass)
+        root.set("hostBypass", switchTokens[1]);
+    return writeXmlDocument(root);
 }
 
 std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes)
@@ -171,31 +177,32 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
     if (data == nullptr || sizeInBytes == 0 || sizeInBytes > maximumSerializedBytes)
         return std::nullopt;
 
-    const auto text = juce::String::fromUTF8(static_cast<const char*>(data),
-                                             static_cast<int>(sizeInBytes));
-    // The parser accepts some truncated documents (for example an unterminated
-    // start tag at end of input) as partial elements. A payload must therefore
-    // be complete: the root must close, either self-closing or with its end tag.
-    const auto trimmed = text.trim();
-    const bool complete = trimmed.endsWith("/>") || trimmed.endsWith(juce::String("</") + rootTag + ">");
+    // 0.5.x builds wrote a terminating NUL in some hosts' copies: text ends at
+    // the first NUL, as it did for the 0.5 reader.
+    std::string document(static_cast<const char*>(data), sizeInBytes);
+    if (const auto nul = document.find('\0'); nul != std::string::npos)
+        document.resize(nul);
+    // A payload must be complete: the root must close, either self-closing or
+    // with its end tag.
+    const auto trimmed = text::trim(document);
+    const bool complete = text::endsWith(trimmed, "/>")
+        || text::endsWith(trimmed, std::string("</") + rootTag + ">");
     if (!complete)
         return std::nullopt;
 
-    juce::XmlDocument document(text);
-    const auto root = document.getDocumentElement();
-    if (root == nullptr || document.getLastParseError().isNotEmpty()
-        || root->getTagName() != rootTag)
+    const auto root = parseXmlRoot(document);
+    if (!root.has_value() || root->tag != rootTag)
         return std::nullopt;
 
     // Unversioned or incompatible payloads are rejected, never guessed at.
-    const auto version = parseInteger(root->getStringAttribute("version"));
+    const auto version = parseInteger(root->get("version"));
     if (!version.has_value() || *version != currentFormatVersion)
         return std::nullopt;
 
     PluginState state;
     auto& configuration = state.configuration;
 
-    if (!readField(*root, "keyIndex", [&](const juce::String& value)
+    if (!readField(*root, "keyIndex", [&](const std::string& value)
         {
             const auto parsed = parseInteger(value);
             if (!parsed.has_value()) return false;
@@ -204,7 +211,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "scale", [&](const juce::String& value)
+    if (!readField(*root, "scale", [&](const std::string& value)
         {
             const auto index = tokenIndex(scaleTokens, value);
             if (!index.has_value()) return false;
@@ -213,7 +220,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "chordPreset", [&](const juce::String& value)
+    if (!readField(*root, "chordPreset", [&](const std::string& value)
         {
             const auto index = tokenIndex(presetTokens, value);
             if (!index.has_value()) return false;
@@ -222,7 +229,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "transposeTarget", [&](const juce::String& value)
+    if (!readField(*root, "transposeTarget", [&](const std::string& value)
         {
             const auto index = tokenIndex(targetTokens, value);
             if (!index.has_value()) return false;
@@ -231,7 +238,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "transposeOctave", [&](const juce::String& value)
+    if (!readField(*root, "transposeOctave", [&](const std::string& value)
         {
             const auto parsed = parseInteger(value);
             if (!parsed.has_value()) return false;
@@ -240,7 +247,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "velocityMode", [&](const juce::String& value)
+    if (!readField(*root, "velocityMode", [&](const std::string& value)
         {
             const auto index = tokenIndex(velocityTokens, value);
             if (!index.has_value()) return false;
@@ -249,7 +256,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "fixedVelocity", [&](const juce::String& value)
+    if (!readField(*root, "fixedVelocity", [&](const std::string& value)
         {
             const auto parsed = parseInteger(value);
             // Range-check before narrowing so an out-of-range value cannot wrap.
@@ -265,16 +272,16 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         "packSlug", "packName", "packPreset", "packVoicing", "packMap" };
     int packFieldCount = 0;
     for (const auto* field : packFields)
-        packFieldCount += root->hasAttribute(field) ? 1 : 0;
+        packFieldCount += root->has(field) ? 1 : 0;
     if (packFieldCount == static_cast<int>(packFields.size()))
     {
         PackPresetState pack;
-        pack.packSlug = root->getStringAttribute("packSlug");
-        pack.packName = root->getStringAttribute("packName");
-        pack.presetName = root->getStringAttribute("packPreset");
-        const auto voicing = tokenIndex(voicingTokens, root->getStringAttribute("packVoicing"));
+        pack.packSlug = root->get("packSlug");
+        pack.packName = root->get("packName");
+        pack.presetName = root->get("packPreset");
+        const auto voicing = tokenIndex(voicingTokens, root->get("packVoicing"));
         if (!validSlug(pack.packSlug) || !validName(pack.packName) || !validName(pack.presetName)
-            || !voicing.has_value() || !decodeTriggerMap(root->getStringAttribute("packMap"), pack.preset))
+            || !voicing.has_value() || !decodeTriggerMap(root->get("packMap"), pack.preset))
             return std::nullopt;
         pack.preset.voicingStyle = voicingTokens[*voicing];
         if (!pack.preset.valid())
@@ -284,7 +291,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
     else if (packFieldCount != 0)
         return std::nullopt;
 
-    if (!readField(*root, "internalAudio", [&](const juce::String& value)
+    if (!readField(*root, "internalAudio", [&](const std::string& value)
         {
             const auto index = tokenIndex(switchTokens, value);
             if (!index.has_value()) return false;
@@ -293,7 +300,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "internalSound", [&](const juce::String& value)
+    if (!readField(*root, "internalSound", [&](const std::string& value)
         {
             const auto index = tokenIndex(soundTokens, value);
             if (!index.has_value()) return false;
@@ -302,7 +309,7 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "recordQuantize", [&](const juce::String& value)
+    if (!readField(*root, "recordQuantize", [&](const std::string& value)
         {
             const auto index = tokenIndex(quantizeTokens, value);
             if (!index.has_value()) return false;
@@ -311,11 +318,20 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
         }))
         return std::nullopt;
 
-    if (!readField(*root, "followHostRecord", [&](const juce::String& value)
+    if (!readField(*root, "followHostRecord", [&](const std::string& value)
         {
             const auto index = tokenIndex(switchTokens, value);
             if (!index.has_value()) return false;
             state.followHostRecord = *index == 1;
+            return true;
+        }))
+        return std::nullopt;
+
+    if (!readField(*root, "hostBypass", [&](const std::string& value)
+        {
+            const auto index = tokenIndex(switchTokens, value);
+            if (!index.has_value()) return false;
+            state.hostBypass = *index == 1;
             return true;
         }))
         return std::nullopt;

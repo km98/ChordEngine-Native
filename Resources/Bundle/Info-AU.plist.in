@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AudioComponents</key>
+	<array>
+		<dict>
+			<key>description</key>
+			<string>@CE_AU_DESCRIPTION@</string>
+			<key>factoryFunction</key>
+			<string>@CE_AU_FACTORY@</string>
+			<key>manufacturer</key>
+			<string>Musc</string>
+			<key>name</key>
+			<string>@CE_AU_NAME@</string>
+			<key>resourceUsage</key>
+			<dict>
+				<key>network.client</key>
+				<true/>
+				<key>temporary-exception.files.all.read-write</key>
+				<true/>
+			</dict>
+			<key>subtype</key>
+			<string>@CE_AU_SUBTYPE@</string>
+			<key>type</key>
+			<string>@CE_AU_TYPE@</string>
+			<key>version</key>
+			<integer>@CE_AU_VERSION@</integer>
+		</dict>
+	</array>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleDisplayName</key>
+	<string>@CE_BUNDLE_NAME@</string>
+	<key>CFBundleExecutable</key>
+	<string>@CE_BUNDLE_NAME@</string>
+	<key>CFBundleIdentifier</key>
+	<string>@CE_BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>@CE_BUNDLE_NAME@</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@CHORDENGINE_VERSION@</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>@CHORDENGINE_VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) Music-Prod</string>
+</dict>
+</plist>

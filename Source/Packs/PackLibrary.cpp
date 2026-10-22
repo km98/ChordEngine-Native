@@ -1,6 +1,9 @@
 #include "PackLibrary.h"
 
+#include "Platform/Platform.h"
+
 #include <algorithm>
+#include <fstream>
 
 namespace chordengine::packs
 {
@@ -10,26 +13,21 @@ constexpr const char* tempPrefix = ".install-";
 constexpr const char* tempSuffix = ".tmp";
 } // namespace
 
-PackLibrary::PackLibrary(juce::File packsDirectory)
+PackLibrary::PackLibrary(std::filesystem::path packsDirectory)
     : directory_(std::move(packsDirectory))
 {
     packs_.push_back(makeStockPack());
 }
 
-juce::File PackLibrary::defaultPacksDirectory()
+std::filesystem::path PackLibrary::defaultPacksDirectory()
 {
-    // Same resolution as the editor's licensing storage: on macOS the JUCE
-    // user-application-data folder is ~/Library, and Music-Prod state lives in
-    // its Application Support folder.
-    auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-    if (appData.getFileName() == "Library")
-        appData = appData.getChildFile("Application Support");
-    return appData.getChildFile("Music-Prod").getChildFile("ChordEngine").getChildFile("Packs");
+    // Beside the licensing state: Application Support/Music-Prod/ChordEngine.
+    return platform::userApplicationDataDirectory() / "Music-Prod" / "ChordEngine" / "Packs";
 }
 
-juce::File PackLibrary::fileFor(const juce::String& slug) const
+std::filesystem::path PackLibrary::fileFor(const std::string& slug) const
 {
-    return directory_.getChildFile(slug + fileExtension);
+    return directory_ / (slug + fileExtension);
 }
 
 void PackLibrary::scan()
@@ -38,41 +36,54 @@ void PackLibrary::scan()
     scanErrors_.clear();
     packs_.push_back(makeStockPack());
 
-    if (!directory_.isDirectory())
+    std::error_code error;
+    if (!std::filesystem::is_directory(directory_, error))
         return;
 
-    for (const auto& stale : directory_.findChildFiles(juce::File::findFiles, false,
-                                                       juce::String(tempPrefix) + "*" + tempSuffix))
-        stale.deleteFile();
-
-    for (const auto& file : directory_.findChildFiles(juce::File::findFiles, false,
-                                                      juce::String("*") + fileExtension))
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::directory_iterator(directory_, error))
     {
-        const auto fileSlug = file.getFileNameWithoutExtension();
-        if (file.getSize() > static_cast<juce::int64>(maxPackBytes))
+        if (!entry.is_regular_file(error))
+            continue;
+        const auto name = entry.path().filename().string();
+        if (text::startsWith(name, tempPrefix) && text::endsWith(name, tempSuffix))
         {
-            scanErrors_.add(file.getFileName() + ": larger than the pack size limit");
+            std::filesystem::remove(entry.path(), error);
+            continue;
+        }
+        if (entry.path().extension() == fileExtension)
+            files.push_back(entry.path());
+    }
+    std::sort(files.begin(), files.end());
+
+    for (const auto& file : files)
+    {
+        const auto fileName = file.filename().string();
+        const auto fileSlug = file.stem().string();
+        std::error_code sizeError;
+        if (std::filesystem::file_size(file, sizeError) > static_cast<std::uintmax_t>(maxPackBytes))
+        {
+            scanErrors_.push_back(fileName + ": larger than the pack size limit");
             continue;
         }
 
-        juce::MemoryBlock bytes;
-        if (!file.loadFileAsData(bytes))
+        const auto stored = platform::readFile(file, maxPackBytes);
+        if (!stored.has_value())
         {
-            scanErrors_.add(file.getFileName() + ": unreadable");
+            scanErrors_.push_back(fileName + ": unreadable");
             continue;
         }
 
-        juce::String error;
-        auto pack = parse(bytes, error);
+        std::string parseError;
+        auto pack = parse(platform::bytesOf(*stored), parseError);
         if (!pack)
         {
-            scanErrors_.add(file.getFileName() + ": " + error);
+            scanErrors_.push_back(fileName + ": " + parseError);
             continue;
         }
         if (pack->slug != fileSlug || pack->isStock)
         {
-            scanErrors_.add(file.getFileName() + ": slug \"" + pack->slug
-                            + "\" does not belong in this file");
+            scanErrors_.push_back(fileName + ": slug \"" + pack->slug + "\" does not belong in this file");
             continue;
         }
         packs_.push_back(std::move(*pack));
@@ -81,46 +92,55 @@ void PackLibrary::scan()
     sortAndPinStock();
 }
 
-juce::String PackLibrary::install(const juce::String& slug, const juce::MemoryBlock& bytes,
-                                  const juce::String& expectedSha256)
+std::string PackLibrary::install(const std::string& slug, const platform::Bytes& bytes,
+                                  const std::string& expectedSha256)
 {
     if (!isValidSlug(slug))
         return "invalid pack id";
     if (slug == stockSlug)
         return "the stock pack is built in";
-    if (bytes.getSize() > maxPackBytes)
+    if (bytes.size() > maxPackBytes)
         return "pack is larger than the size limit";
 
     // The digest comes from the store's signed answer; the bytes from a URL.
     // Only bytes that hash to the published digest are ever parsed.
-    const auto expected = expectedSha256.trim().toLowerCase();
+    const auto expected = text::toLower(text::trim(expectedSha256));
     if (!isValidSha256Hex(expected))
         return "missing or malformed checksum";
     if (sha256Hex(bytes) != expected)
         return "checksum mismatch";
 
-    juce::String error;
+    std::string error;
     auto pack = parse(bytes, error);
     if (!pack)
         return "invalid pack: " + error;
     if (pack->slug != slug)
         return "pack id mismatch";
 
-    if (!directory_.createDirectory())
+    std::error_code fsError;
+    std::filesystem::create_directories(directory_, fsError);
+    if (!std::filesystem::is_directory(directory_, fsError))
         return "cannot create the packs folder";
 
     // Atomic replace: write the complete file beside the target, then rename
     // it over the old one. A crash leaves either the old pack or the new one,
     // never a half-written file (and scan() removes an orphaned temp file).
-    const auto temp = directory_.getNonexistentChildFile(tempPrefix + slug, tempSuffix, false);
-    if (!temp.replaceWithData(bytes.getData(), bytes.getSize()))
+    const auto temp = directory_ / (std::string(tempPrefix) + slug + "-" + platform::randomHex(4) + tempSuffix);
     {
-        temp.deleteFile();
-        return "cannot write the pack file";
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (out)
+            out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        if (!out)
+        {
+            out.close();
+            std::filesystem::remove(temp, fsError);
+            return "cannot write the pack file";
+        }
     }
-    if (!temp.replaceFileIn(fileFor(slug)))
+    std::filesystem::rename(temp, fileFor(slug), fsError);
+    if (fsError)
     {
-        temp.deleteFile();
+        std::filesystem::remove(temp, fsError);
         return "cannot replace the pack file";
     }
 
@@ -132,7 +152,7 @@ juce::String PackLibrary::install(const juce::String& slug, const juce::MemoryBl
     return {};
 }
 
-juce::String PackLibrary::remove(const juce::String& slug)
+std::string PackLibrary::remove(const std::string& slug)
 {
     if (slug == stockSlug)
         return "the stock pack is built in";
@@ -143,14 +163,15 @@ juce::String PackLibrary::remove(const juce::String& slug)
         return "pack is not installed";
 
     const auto file = fileFor(slug);
-    if (file.exists() && !file.deleteFile())
+    std::error_code error;
+    if (std::filesystem::exists(file, error) && !std::filesystem::remove(file, error))
         return "cannot delete the pack file";
 
     packs_.erase(it);
     return {};
 }
 
-const PackDefinition* PackLibrary::find(const juce::String& slug) const noexcept
+const PackDefinition* PackLibrary::find(const std::string& slug) const noexcept
 {
     for (const auto& pack : packs_)
         if (pack.slug == slug)
@@ -179,8 +200,9 @@ void PackLibrary::sortAndPinStock()
                      {
                          if (a.isStock != b.isStock)
                              return a.isStock;
-                         const auto byName = a.name.compareIgnoreCase(b.name);
-                         return byName != 0 ? byName < 0 : a.slug < b.slug;
+                         const auto nameA = text::toLower(a.name);
+                         const auto nameB = text::toLower(b.name);
+                         return nameA != nameB ? nameA < nameB : a.slug < b.slug;
                      });
 }
 } // namespace chordengine::packs

@@ -5,8 +5,12 @@
 #include "UpdateTransport.h"
 #include "UpdateTypes.h"
 
+#include "Platform/Platform.h"
+
 #include <atomic>
+#include <filesystem>
 #include <functional>
+#include <memory>
 
 namespace chordengine::updates
 {
@@ -18,9 +22,9 @@ bool shouldRetryCheck(const TransportReply& reply, const UpdateResponse& parsed)
 // =====================================================================
 // The native ChordEngine update client.
 //
-//   * Every request runs on a ONE-worker background ThreadPool and its result
-//     is delivered back with MessageManager::callAsync. The audio/MIDI thread
-//     never sees this class.
+//   * Every request runs on a ONE-worker background queue and its result is
+//     delivered back on the main thread. The audio/MIDI thread never sees
+//     this class.
 //   * The check is anonymous: it sends the product slug, the actual build
 //     version and the platform. It reads no account, session or licence state
 //     and it needs none.
@@ -33,10 +37,10 @@ class UpdateService
 {
 public:
     // `currentVersion` is the actual build version of the binary this client
-    // ships in, taken from that build's metadata (JucePlugin_VersionString).
+    // ships in, taken from that build's metadata (CHORDENGINE_PLUGIN_VERSION_STRING).
     // It is supplied by the plugin-side code because the value lives in the
     // plugin target's build definitions, never in this library.
-    UpdateService(juce::String currentVersion, juce::File cacheFile,
+    UpdateService(std::string currentVersion, std::filesystem::path cacheFile,
                   UpdateTransport::Ptr transport);
     ~UpdateService();
 
@@ -52,9 +56,9 @@ public:
 
     bool isCheckInFlight() const noexcept { return checkInFlight_.load(); }
     bool startupCheckDone() const noexcept { return startupCheckStarted_; }
-    int workerCount() const noexcept { return pool_.getNumThreads(); }
-    const UpdateCache& cache() const noexcept { return cache_; }
-    const juce::String& currentVersion() const noexcept { return currentVersion_; }
+    int workerCount() const noexcept { return 1; }
+    const UpdateCache& cache() const noexcept { return shared_->cache; }
+    const std::string& currentVersion() const noexcept { return shared_->currentVersion; }
 
     // Runs one complete check ON THE CALLING THREAD: transport, retry policy,
     // strict validation and cache persistence. It never touches view_ or the
@@ -65,24 +69,29 @@ public:
     // Invoked on the message thread whenever the published view changes.
     std::function<void()> onViewChanged;
 
-    JUCE_DECLARE_WEAK_REFERENCEABLE(UpdateService)
-
 private:
-    void runBackgroundCheck();
+    // What a background check reads. The worker job holds it by shared
+    // pointer, so a check still running when the editor closes never touches
+    // a destroyed service.
+    struct Shared
+    {
+        std::string currentVersion;
+        UpdateTransport::Ptr transport;
+        UpdateCache cache;
+    };
+
+    static UpdateView performCheckOn(Shared& shared);
+    static UpdateView buildView(const Shared& shared, const TransportReply& reply,
+                                const UpdateResponse& parsed, std::int64_t nowMs);
     void finishBackgroundCheck(const UpdateView& result);
     void publish(UpdateView next);
-    UpdateView buildView(const TransportReply& reply, const UpdateResponse& parsed,
-                         std::int64_t nowMs) const;
     UpdateView buildCachedView(const CachedUpdate& entry) const;
 
-    juce::ThreadPool pool_ { 1 };
-    juce::String currentVersion_;
-    UpdateTransport::Ptr transport_;
-    UpdateCache cache_;
+    std::shared_ptr<Shared> shared_;
     UpdateView view_;
     bool startupCheckStarted_ = false;
     std::atomic<bool> checkInFlight_ { false };
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UpdateService)
+    platform::WorkerQueue worker_ { 3000 };
+    platform::LifetimeToken lifetime_;
 };
 } // namespace chordengine::updates

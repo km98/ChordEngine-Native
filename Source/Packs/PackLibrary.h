@@ -2,8 +2,8 @@
 
 #include "PackFormat.h"
 
-#include <juce_core/juce_core.h>
-
+#include <filesystem>
+#include <string>
 #include <vector>
 
 namespace chordengine::packs
@@ -24,37 +24,37 @@ class PackLibrary
 public:
     static constexpr const char* fileExtension = ".chordpack";
 
-    explicit PackLibrary(juce::File packsDirectory);
+    explicit PackLibrary(std::filesystem::path packsDirectory);
 
     // <Application Support>/Music-Prod/ChordEngine/Packs - beside auth.json,
     // the same root the licensing state uses.
-    static juce::File defaultPacksDirectory();
+    static std::filesystem::path defaultPacksDirectory();
 
-    const juce::File& directory() const noexcept { return directory_; }
-    juce::File fileFor(const juce::String& slug) const;
+    const std::filesystem::path& directory() const noexcept { return directory_; }
+    std::filesystem::path fileFor(const std::string& slug) const;
 
     // Reloads every *.chordpack in the directory. A file that fails to parse,
     // or whose slug does not match its file name, is skipped (and reported in
     // scanErrors()) - one bad file never hides the others. Stale temporary
     // files from an interrupted install are deleted.
     void scan();
-    const juce::StringArray& scanErrors() const noexcept { return scanErrors_; }
+    const std::vector<std::string>& scanErrors() const noexcept { return scanErrors_; }
 
     // Verifies `bytes` against `expectedSha256` (lowercase hex), parses and
     // validates them, requires the pack's slug to equal `slug`, then writes
     // the file atomically (temp file + rename over the old one) and updates
     // the in-memory list. Returns "" on success, otherwise the reason; on
     // failure nothing on disk or in memory changes.
-    juce::String install(const juce::String& slug, const juce::MemoryBlock& bytes,
-                         const juce::String& expectedSha256);
+    std::string install(const std::string& slug, const platform::Bytes& bytes,
+                         const std::string& expectedSha256);
 
     // Deletes an installed pack. Returns "" on success. The stock pack cannot
     // be removed.
-    juce::String remove(const juce::String& slug);
+    std::string remove(const std::string& slug);
 
     // Stock first, then installed packs ordered by name.
     const std::vector<PackDefinition>& list() const noexcept { return packs_; }
-    const PackDefinition* find(const juce::String& slug) const noexcept;
+    const PackDefinition* find(const std::string& slug) const noexcept;
 
     // The packs whose presets may be offered right now: the stock pack always,
     // downloaded packs only while the account is an active Music-Prod+ member
@@ -66,10 +66,9 @@ public:
 private:
     void sortAndPinStock();
 
-    juce::File directory_;
+    std::filesystem::path directory_;
     std::vector<PackDefinition> packs_;
-    juce::StringArray scanErrors_;
+    std::vector<std::string> scanErrors_;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PackLibrary)
 };
 } // namespace chordengine::packs

@@ -2,7 +2,10 @@
 
 #include "Licensing/LicensingTypes.h" // the shared Music-Prod origin constant only
 
-#include <juce_events/juce_events.h>
+#include "Platform/Platform.h"
+
+#include <chrono>
+#include <thread>
 
 namespace chordengine::updates
 {
@@ -19,20 +22,16 @@ bool shouldRetryCheck(const TransportReply& reply, const UpdateResponse& parsed)
     return parsed.errorCode == "releaseBackendUnavailable";
 }
 
-UpdateService::UpdateService(juce::String currentVersion, juce::File cacheFile,
+UpdateService::UpdateService(std::string currentVersion, std::filesystem::path cacheFile,
                              UpdateTransport::Ptr transport)
-    : currentVersion_(std::move(currentVersion)),
-      transport_(std::move(transport)),
-      cache_(std::move(cacheFile))
+    : shared_(std::make_shared<Shared>(Shared { std::move(currentVersion), std::move(transport),
+                                                UpdateCache(std::move(cacheFile)) }))
 {
-    jassert(currentVersion_.isNotEmpty());
 }
 
-UpdateService::~UpdateService()
-{
-    // Finish or cancel the in-flight round trip before the owner can go away.
-    pool_.removeAllJobs(true, 3000);
-}
+// The worker queue waits up to 3 s for the in-flight round trip; a slower one
+// finishes on its own with the shared state it holds.
+UpdateService::~UpdateService() = default;
 
 void UpdateService::ensureStartupCheck()
 {
@@ -41,7 +40,7 @@ void UpdateService::ensureStartupCheck()
 
     startupCheckStarted_ = true;
 
-    const auto cached = cache_.load();
+    const auto cached = shared_->cache.load();
     if (cached.valid)
         publish(buildCachedView(cached)); // shown at once, marked as cached
 
@@ -57,28 +56,20 @@ void UpdateService::checkNow()
 
     UpdateView checking;
     checking.status = UpdateStatus::checking;
-    checking.currentVersion = currentVersion_;
+    checking.currentVersion = shared_->currentVersion;
     publish(checking);
 
-    const juce::WeakReference<UpdateService> weakThis(this);
-    pool_.addJob(
-        [weakThis]
+    const auto weakThis = lifetime_.weak();
+    auto* const owner = this;
+    worker_.post(
+        [shared = shared_, weakThis, owner]
         {
-            if (auto* self = weakThis.get())
-                self->runBackgroundCheck();
-        });
-}
-
-void UpdateService::runBackgroundCheck()
-{
-    const auto result = performCheck();
-
-    const juce::WeakReference<UpdateService> weakThis(this);
-    juce::MessageManager::callAsync(
-        [weakThis, result]
-        {
-            if (auto* self = weakThis.get())
-                self->finishBackgroundCheck(result);
+            const auto result = performCheckOn(*shared);
+            platform::callOnMainThread([weakThis, owner, result]
+            {
+                if (platform::LifetimeToken::alive(weakThis))
+                    owner->finishBackgroundCheck(result);
+            });
         });
 }
 
@@ -97,16 +88,21 @@ void UpdateService::publish(UpdateView next)
 
 UpdateView UpdateService::performCheck()
 {
+    return performCheckOn(*shared_);
+}
+
+UpdateView UpdateService::performCheckOn(Shared& shared)
+{
     const auto platform = platformName();
-    const auto url = buildUpdateUrl(juce::String(licensing::authOrigin), productSlug,
-                                    currentVersion_, platform);
+    const auto url = buildUpdateUrl(std::string(licensing::authOrigin), productSlug,
+                                    shared.currentVersion, platform);
 
     TransportReply reply;
     UpdateResponse parsed;
 
     for (int attempt = 1; attempt <= maxCheckAttempts; ++attempt)
     {
-        reply = transport_ != nullptr ? transport_->get(url) : TransportReply {};
+        reply = shared.transport != nullptr ? shared.transport->get(url) : TransportReply {};
         parsed = parseUpdateResponse(parseJsonText(reply.body), platform);
 
         if (reply.transportOk && parsed.ok)
@@ -115,10 +111,10 @@ UpdateView UpdateService::performCheck()
         if (attempt == maxCheckAttempts || !shouldRetryCheck(reply, parsed))
             break;
 
-        juce::Thread::sleep(retryBackoffMs);
+        std::this_thread::sleep_for(std::chrono::milliseconds(retryBackoffMs));
     }
 
-    const auto finishedAtMs = juce::Time::currentTimeMillis();
+    const auto finishedAtMs = platform::currentTimeMillis();
 
     if (parsed.ok)
     {
@@ -126,24 +122,24 @@ UpdateView UpdateService::performCheck()
         entry.valid = true;
         entry.product = productSlug;
         entry.platform = platform;
-        entry.currentVersion = currentVersion_;
+        entry.currentVersion = shared.currentVersion;
         entry.latestVersion = parsed.latestVersion;
         entry.decision = parsed.decision;
         entry.serverStatus = parsed.serverStatus;
         entry.reason = parsed.reason;
         entry.mustUpdate = parsed.mustUpdate;
         entry.checkedAtMs = finishedAtMs;
-        cache_.save(entry);
+        shared.cache.save(entry);
     }
 
-    return buildView(reply, parsed, finishedAtMs);
+    return buildView(shared, reply, parsed, finishedAtMs);
 }
 
-UpdateView UpdateService::buildView(const TransportReply& reply, const UpdateResponse& parsed,
-                                    std::int64_t nowMs) const
+UpdateView UpdateService::buildView(const Shared& shared, const TransportReply& reply,
+                                    const UpdateResponse& parsed, std::int64_t nowMs)
 {
     UpdateView next;
-    next.currentVersion = currentVersion_;
+    next.currentVersion = shared.currentVersion;
 
     if (parsed.ok)
     {
@@ -159,7 +155,7 @@ UpdateView UpdateService::buildView(const TransportReply& reply, const UpdateRes
 
     // A rejected request or payload is NEVER reported as success. The last
     // successful answer is kept and shown as cached.
-    const auto cached = cache_.load();
+    const auto cached = shared.cache.load();
     if (cached.valid)
     {
         next.latestVersion = cached.latestVersion;
@@ -170,7 +166,7 @@ UpdateView UpdateService::buildView(const TransportReply& reply, const UpdateRes
         bool cachedMustUpdate = false;
         next.cachedStatus = classifyServerAnswer(cached.serverStatus, cached.decision,
                                                  cached.mustUpdate,
-                                                 cached.latestVersion.isNotEmpty(),
+                                                 !cached.latestVersion.empty(),
                                                  cachedMustUpdate);
     }
 
@@ -188,13 +184,13 @@ UpdateView UpdateService::buildView(const TransportReply& reply, const UpdateRes
     else if (reply.status != 200)
     {
         next.status = UpdateStatus::error;
-        next.detail = "Error - server returned HTTP " + juce::String(reply.status);
+        next.detail = "Error - server returned HTTP " + std::to_string(reply.status);
     }
     else
     {
         next.status = UpdateStatus::error;
-        next.detail = parsed.error.isNotEmpty() ? "Error - " + parsed.error
-                                                : juce::String("Error checking for updates");
+        next.detail = !parsed.error.empty() ? "Error - " + parsed.error
+                                                : std::string("Error checking for updates");
     }
 
     return next;
@@ -203,7 +199,7 @@ UpdateView UpdateService::buildView(const TransportReply& reply, const UpdateRes
 UpdateView UpdateService::buildCachedView(const CachedUpdate& entry) const
 {
     UpdateView next;
-    next.currentVersion = currentVersion_;
+    next.currentVersion = shared_->currentVersion;
     next.latestVersion = entry.latestVersion;
     next.detail = entry.reason;
     next.cached = true;
@@ -211,7 +207,7 @@ UpdateView UpdateService::buildCachedView(const CachedUpdate& entry) const
 
     bool mustUpdateOut = false;
     next.status = classifyServerAnswer(entry.serverStatus, entry.decision, entry.mustUpdate,
-                                       entry.latestVersion.isNotEmpty(), mustUpdateOut);
+                                       !entry.latestVersion.empty(), mustUpdateOut);
     next.cachedStatus = next.status;
     next.mustUpdate = mustUpdateOut;
     return next;

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<CHORDENGINE_STATE version="1" keyIndex="3" scale="dorian" chordPreset="neoSoul"
+                   transposeTarget="lowest" transposeOctave="-1" velocityMode="fixed"
+                   fixedVelocity="77" packSlug="chordengine-test-pack" packName="Test &amp; Pack"
+                   packPreset="Caf&#233; &#9839;" packVoicing="open" packMap="000b16212c374207121d28333e030e19242f3a450a15202b364106111c27323d020d18232e394409141f2a354005101b26313c010c17222d384308131e29343f040f1a25303b000b16"
+                   internalAudio="on" internalSound="bass" recordQuantize="thirdBeat"
+                   followHostRecord="on"/>

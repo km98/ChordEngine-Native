@@ -2,10 +2,11 @@
 
 #include "Licensing/LicensingTypes.h" // the shared Music-Prod origin constant only
 
-#include <juce_events/juce_events.h>
+#include "Platform/Platform.h"
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 
 namespace chordengine::packs
 {
@@ -15,37 +16,36 @@ constexpr int connectionTimeoutMs = 12000;
 constexpr double readDeadlineMs = 30000.0;
 constexpr const char* defaultUnlockUrl = "https://music-prod.com/plus";
 
-juce::var parseJsonBody(const juce::MemoryBlock& body)
+platform::Json parseJsonBody(const platform::Bytes& body)
 {
-    if (body.isEmpty())
+    if (body.empty())
         return {};
-    juce::var parsed;
-    const auto result = juce::JSON::parse(body.toString(), parsed);
-    return result.failed() ? juce::var() : parsed;
+    auto parsed = platform::Json::parse(platform::textOf(body));
+    return parsed.has_value() ? *parsed : platform::Json();
 }
 
-juce::String stringAt(const juce::var& object, const char* key)
+std::string stringAt(const platform::Json& object, const char* key)
 {
-    const auto value = object.getProperty(key, juce::var());
-    return value.isString() ? value.toString() : juce::String();
+    const auto& value = object[key];
+    return value.isString() ? value.stringRef() : std::string();
 }
 
-bool isInteger(const juce::var& value) noexcept
+bool isInteger(const platform::Json& value) noexcept
 {
-    return value.isInt() || value.isInt64();
+    return value.isInteger();
 }
 
-juce::String interpunct()
+std::string interpunct()
 {
-    return juce::String(juce::CharPointer_UTF8(" \xc2\xb7 "));
+    return " \xc2\xb7 ";
 }
 
-juce::String presetsText(int count)
+std::string presetsText(int count)
 {
-    return juce::String(count) + (count == 1 ? " preset" : " presets");
+    return std::to_string(count) + (count == 1 ? " preset" : " presets");
 }
 
-std::optional<CatalogEntry> parseCatalogEntry(const juce::var& value, juce::String& error)
+std::optional<CatalogEntry> parseCatalogEntry(const platform::Json& value, std::string& error)
 {
     if (!value.isObject())
     {
@@ -55,48 +55,59 @@ std::optional<CatalogEntry> parseCatalogEntry(const juce::var& value, juce::Stri
 
     CatalogEntry entry;
     entry.slug = stringAt(value, "slug");
-    entry.name = stringAt(value, "name").trim();
+    entry.name = text::trim(stringAt(value, "name"));
     entry.description = stringAt(value, "description");
     entry.version = stringAt(value, "version");
-    entry.sha256 = stringAt(value, "sha256").toLowerCase();
+    entry.sha256 = text::toLower(stringAt(value, "sha256"));
     entry.artworkUrl = stringAt(value, "artwork_url");
-    entry.isStock = static_cast<bool>(value.getProperty("is_stock", false));
+    const auto& stockValue = value["is_stock"];
+    entry.isStock = stockValue.isBool() ? stockValue.asBool() : licensing::varNumber(stockValue) != 0.0;
 
-    const auto presetCount = value.getProperty("preset_count", juce::var());
-    const auto sizeBytes = value.getProperty("size_bytes", juce::var());
-    const auto sortOrder = value.getProperty("sort_order", 0);
+    const auto& presetCount = value["preset_count"];
+    const auto& sizeBytes = value["size_bytes"];
+    // A missing sort_order counts as 0.
+    const auto sortOrder = value.has("sort_order") ? value["sort_order"] : platform::Json(0);
 
     if (!isValidSlug(entry.slug))
         error = "invalid slug";
-    else if (entry.name.isEmpty() || entry.name.length() > maxPackNameLength)
+    else if (entry.name.empty() || text::utf8Length(entry.name) > static_cast<std::size_t>(maxPackNameLength))
         error = entry.slug + ": invalid name";
     else if (!isValidVersion(entry.version))
         error = entry.slug + ": invalid version";
     else if (!isValidSha256Hex(entry.sha256))
         error = entry.slug + ": invalid sha256";
-    else if (!isInteger(presetCount) || static_cast<juce::int64>(presetCount) < minPresets
-             || static_cast<juce::int64>(presetCount) > maxPresets)
+    else if (!isInteger(presetCount) || presetCount.asInt() < minPresets
+             || presetCount.asInt() > maxPresets)
         error = entry.slug + ": invalid preset_count";
-    else if (!isInteger(sizeBytes) || static_cast<juce::int64>(sizeBytes) <= 0
-             || static_cast<juce::int64>(sizeBytes) > static_cast<juce::int64>(maxPackBytes))
+    else if (!isInteger(sizeBytes) || sizeBytes.asInt() <= 0
+             || sizeBytes.asInt() > static_cast<std::int64_t>(maxPackBytes))
         error = entry.slug + ": invalid size_bytes";
     else if (!isInteger(sortOrder))
         error = entry.slug + ": invalid sort_order";
-    if (error.isNotEmpty())
+    if (!error.empty())
         return std::nullopt;
 
-    entry.presetCount = static_cast<int>(presetCount);
-    entry.sizeBytes = static_cast<juce::int64>(sizeBytes);
-    entry.sortOrder = static_cast<int>(sortOrder);
-    if (entry.description.length() > maxDescriptionLength)
-        entry.description = entry.description.substring(0, maxDescriptionLength);
+    entry.presetCount = static_cast<int>(presetCount.asInt());
+    entry.sizeBytes = sizeBytes.asInt();
+    entry.sortOrder = static_cast<int>(sortOrder.asInt());
+    if (text::utf8Length(entry.description) > static_cast<std::size_t>(maxDescriptionLength))
+    {
+        // Cut at a character boundary after maxDescriptionLength characters.
+        std::size_t characters = 0;
+        std::size_t index = 0;
+        for (; index < entry.description.size(); ++index)
+            if ((static_cast<unsigned char>(entry.description[index]) & 0xC0) != 0x80
+                && characters++ == static_cast<std::size_t>(maxDescriptionLength))
+                break;
+        entry.description.resize(index);
+    }
     // Artwork is optional decoration: an unsafe URL is dropped, not fatal.
-    if (entry.artworkUrl.isNotEmpty() && !isAllowedStoreUrl(entry.artworkUrl))
+    if (!entry.artworkUrl.empty() && !isAllowedStoreUrl(entry.artworkUrl))
         entry.artworkUrl.clear();
     return entry;
 }
 
-juce::String messageFor(PackStoreClient::DownloadOutcome outcome)
+std::string messageFor(PackStoreClient::DownloadOutcome outcome)
 {
     using Outcome = PackStoreClient::DownloadOutcome;
     switch (outcome)
@@ -115,7 +126,7 @@ juce::String messageFor(PackStoreClient::DownloadOutcome outcome)
 }
 
 PackStoreClient::DownloadResult makeResult(PackStoreClient::DownloadOutcome outcome,
-                                           const juce::String& slug)
+                                           const std::string& slug)
 {
     PackStoreClient::DownloadResult result;
     result.outcome = outcome;
@@ -128,86 +139,60 @@ PackStoreClient::DownloadResult makeResult(PackStoreClient::DownloadOutcome outc
 // ============================================================ transport
 HttpPackStoreTransport::HttpPackStoreTransport() = default;
 
-HttpPackStoreTransport::~HttpPackStoreTransport()
-{
-    // Finish or cancel in-flight requests; each is a short round trip.
-    pool_.removeAllJobs(true, 3000);
-}
+// The worker queue waits up to 3 s for a request in flight.
+HttpPackStoreTransport::~HttpPackStoreTransport() = default;
 
-void HttpPackStoreTransport::get(const juce::String& url, std::size_t maxBytes, Callback callback)
+void HttpPackStoreTransport::get(const std::string& url, std::size_t maxBytes, Callback callback)
 {
     enqueue(url, {}, false, maxBytes, std::move(callback));
 }
 
-void HttpPackStoreTransport::postJson(const juce::String& url, const juce::String& json,
+void HttpPackStoreTransport::postJson(const std::string& url, const std::string& json,
                                       std::size_t maxBytes, Callback callback)
 {
     enqueue(url, json, true, maxBytes, std::move(callback));
 }
 
-void HttpPackStoreTransport::enqueue(juce::String requestUrl, juce::String requestBody, bool isPost,
+void HttpPackStoreTransport::enqueue(std::string requestUrl, std::string requestBody, bool isPost,
                                      std::size_t maxBytes, Callback replyCallback)
 {
-    pool_.addJob(
-        [url = std::move(requestUrl), postBody = std::move(requestBody), isPost, maxBytes,
-         callback = std::move(replyCallback)]
+    platform::HttpRequest request;
+    request.method = isPost ? "POST" : "GET";
+    request.url = std::move(requestUrl);
+    if (isPost)
+        request.headers = { { "Content-Type", "application/json" } };
+    request.body = std::move(requestBody);
+    request.connectTimeoutMs = connectionTimeoutMs;
+    // Bounded: never buffer more than the caller accepts, and never let a
+    // stalled body hold the worker indefinitely.
+    request.totalTimeoutMs = connectionTimeoutMs + static_cast<int>(readDeadlineMs);
+    // One byte beyond the limit, so an oversized body is seen as truncated.
+    request.maxResponseBytes = maxBytes + 1;
+    // A redirect could leave https; the store never redirects, so none is
+    // followed.
+    request.maxRedirects = 0;
+
+    worker_.post(
+        [request = std::move(request), maxBytes, callback = std::move(replyCallback)]
         {
             StoreReply reply;
-            int statusCode = 0;
-
-            const auto options = juce::URL::InputStreamOptions(isPost
-                                                                   ? juce::URL::ParameterHandling::inPostData
-                                                                   : juce::URL::ParameterHandling::inAddress)
-                                     .withExtraHeaders(isPost ? "Content-Type: application/json\r\n" : "")
-                                     .withConnectionTimeoutMs(connectionTimeoutMs)
-                                     .withStatusCode(&statusCode)
-                                     // A redirect could leave https; the store
-                                     // never redirects, so none is followed.
-                                     .withNumRedirectsToFollow(0)
-                                     .withHttpRequestCmd(isPost ? "POST" : "GET");
-
-            auto target = juce::URL(url);
-            if (isPost)
-                target = target.withPOSTData(postBody);
-
-            if (auto stream = target.createInputStream(options))
+            const auto response = platform::httpRequest(request);
+            if (response.transportOk && !response.timedOut)
             {
                 reply.transportOk = true;
-                reply.status = statusCode;
-
-                // Bounded read: never buffer more than the caller accepts, and
-                // never let a stalled body hold the worker indefinitely.
-                juce::MemoryOutputStream buffer(reply.body, false);
-                std::array<char, 8192> chunk {};
-                const auto startedAtMs = juce::Time::getMillisecondCounterHiRes();
-                for (;;)
-                {
-                    if (juce::Time::getMillisecondCounterHiRes() - startedAtMs > readDeadlineMs)
-                    {
-                        reply.transportOk = false;
-                        break;
-                    }
-                    const auto numRead = stream->read(chunk.data(), static_cast<int>(chunk.size()));
-                    if (numRead <= 0)
-                        break;
-                    buffer.write(chunk.data(), static_cast<std::size_t>(numRead));
-                    if (buffer.getDataSize() > maxBytes)
-                    {
-                        reply.truncated = true;
-                        break;
-                    }
-                }
-                buffer.flush();
+                reply.status = response.status;
+                reply.truncated = response.truncated || response.body.size() > maxBytes;
+                reply.body = platform::bytesOf(response.body);
             }
 
             if (callback == nullptr)
                 return;
-            juce::MessageManager::callAsync([callback, reply] { callback(reply); });
+            platform::callOnMainThread([callback, reply] { callback(reply); });
         });
 }
 
 // ============================================================== catalog
-const CatalogEntry* Catalog::find(const juce::String& slug) const noexcept
+const CatalogEntry* Catalog::find(const std::string& slug) const noexcept
 {
     for (const auto& entry : packs)
         if (entry.slug == slug)
@@ -215,24 +200,26 @@ const CatalogEntry* Catalog::find(const juce::String& slug) const noexcept
     return nullptr;
 }
 
-std::optional<Catalog> parseCatalog(const juce::String& json, juce::String& error)
+std::optional<Catalog> parseCatalog(const std::string& json, std::string& error)
 {
     error.clear();
-    juce::var root;
-    if (juce::JSON::parse(json, root).failed() || !root.isObject())
+    const auto document = platform::Json::parse(json);
+    if (!document.has_value() || !document->isObject())
     {
         error = "catalog is not a JSON object";
         return std::nullopt;
     }
+    const auto& root = *document;
 
-    const auto version = root.getProperty("version", juce::var());
-    if (!isInteger(version) || static_cast<int>(version) != 1)
+    const auto& version = root["version"];
+    if (!isInteger(version) || version.asInt() != 1)
     {
         error = "unsupported catalog version";
         return std::nullopt;
     }
 
-    const auto* entries = root.getProperty("packs", juce::var()).getArray();
+    const auto& packsValue = root["packs"];
+    const auto* entries = packsValue.isArray() ? &packsValue.items() : nullptr;
     if (entries == nullptr)
     {
         error = "catalog has no packs array";
@@ -244,16 +231,16 @@ std::optional<Catalog> parseCatalog(const juce::String& json, juce::String& erro
     catalog.generatedAt = stringAt(root, "generated_at");
     for (const auto& value : *entries)
     {
-        juce::String entryError;
+        std::string entryError;
         auto entry = parseCatalogEntry(value, entryError);
         if (!entry)
         {
-            catalog.skipped.add(entryError);
+            catalog.skipped.push_back(entryError);
             continue;
         }
         if (catalog.find(entry->slug) != nullptr)
         {
-            catalog.skipped.add(entry->slug + ": duplicate");
+            catalog.skipped.push_back(entry->slug + ": duplicate");
             continue;
         }
         catalog.packs.push_back(std::move(*entry));
@@ -264,35 +251,35 @@ std::optional<Catalog> parseCatalog(const juce::String& json, juce::String& erro
                      {
                          if (a.sortOrder != b.sortOrder)
                              return a.sortOrder < b.sortOrder;
-                         return a.name.compareIgnoreCase(b.name) < 0;
+                         return text::toLower(a.name) < text::toLower(b.name);
                      });
     return catalog;
 }
 
-bool isAllowedStoreUrl(const juce::String& url)
+bool isAllowedStoreUrl(const std::string& url)
 {
-    const auto schemeEnd = url.indexOf("://");
-    if (schemeEnd <= 0)
+    const auto schemeEnd = url.find("://");
+    if (schemeEnd == std::string::npos || schemeEnd == 0)
         return false;
 
-    const auto scheme = url.substring(0, schemeEnd).toLowerCase();
-    const auto rest = url.substring(schemeEnd + 3);
-    auto authorityEnd = rest.length();
+    const auto scheme = text::toLower(url.substr(0, schemeEnd));
+    const auto rest = url.substr(schemeEnd + 3);
+    auto authorityEnd = rest.size();
     for (const auto delimiter : { '/', '?', '#' })
     {
-        const auto at = rest.indexOfChar(delimiter);
-        if (at >= 0)
-            authorityEnd = juce::jmin(authorityEnd, at);
+        const auto at = rest.find(delimiter);
+        if (at != std::string::npos)
+            authorityEnd = std::min(authorityEnd, at);
     }
-    const auto authority = rest.substring(0, authorityEnd);
+    const auto authority = rest.substr(0, authorityEnd);
 
     // No user-info ("https://good@evil/") and no IPv6 literals: the host has
     // to be exactly what it looks like.
-    if (authority.isEmpty() || authority.containsAnyOf("@[]\\ ") || authority.containsAnyOf("\r\n\t"))
+    if (authority.empty() || authority.find_first_of("@[]\\ \r\n\t") != std::string::npos)
         return false;
 
-    const auto host = authority.upToFirstOccurrenceOf(":", false, false).toLowerCase();
-    if (host.isEmpty())
+    const auto host = text::toLower(authority.substr(0, authority.find(':')));
+    if (host.empty())
         return false;
 
     if (scheme == "https")
@@ -302,33 +289,33 @@ bool isAllowedStoreUrl(const juce::String& url)
 
 // =============================================================== client
 PackStoreClient::PackStoreClient(PackStoreTransport& transport, PackLibrary& library,
-                                 juce::String origin)
+                                 std::string origin)
     : transport_(transport), library_(library),
-      origin_(origin.isEmpty() ? juce::String(licensing::authOrigin) : std::move(origin))
+      origin_(origin.empty() ? std::string(licensing::authOrigin) : std::move(origin))
 {
-    if (!origin_.endsWithChar('/'))
-        origin_ << '/';
+    if (origin_.empty() || origin_.back() != '/')
+        origin_ += '/';
 }
 
 PackStoreClient::~PackStoreClient() = default;
 
-juce::String PackStoreClient::functionUrl() const
+std::string PackStoreClient::functionUrl() const
 {
     return origin_ + storeFunction;
 }
 
-juce::String PackStoreClient::catalogUrl() const
+std::string PackStoreClient::catalogUrl() const
 {
     return functionUrl() + "?action=catalog";
 }
 
 void PackStoreClient::fetchCatalog(CatalogCallback catalogCallback)
 {
-    const juce::WeakReference<PackStoreClient> weakThis(this);
+    const auto weakThis = lifetime_.weak();
     transport_.get(catalogUrl(), maxCatalogBytes,
                    [weakThis, callback = std::move(catalogCallback)](StoreReply reply)
                    {
-                       if (weakThis.get() == nullptr || callback == nullptr)
+                       if (!platform::LifetimeToken::alive(weakThis) || callback == nullptr)
                            return;
 
                        CatalogResult result;
@@ -337,8 +324,8 @@ void PackStoreClient::fetchCatalog(CatalogCallback catalogCallback)
                        else if (reply.truncated)
                            result.error = "catalog too large";
                        else if (reply.status != 200)
-                           result.error = "catalog unavailable (HTTP " + juce::String(reply.status) + ")";
-                       else if (auto catalog = parseCatalog(reply.body.toString(), result.error))
+                           result.error = "catalog unavailable (HTTP " + std::to_string(reply.status) + ")";
+                       else if (auto catalog = parseCatalog(platform::textOf(reply.body), result.error))
                        {
                            result.ok = true;
                            result.catalog = std::move(*catalog);
@@ -347,7 +334,7 @@ void PackStoreClient::fetchCatalog(CatalogCallback catalogCallback)
                    });
 }
 
-void PackStoreClient::download(const juce::String& token, const juce::String& slug,
+void PackStoreClient::download(const std::string& token, const std::string& slug,
                                DownloadCallback callback)
 {
     if (!isValidSlug(slug) || slug == stockSlug)
@@ -358,26 +345,26 @@ void PackStoreClient::download(const juce::String& token, const juce::String& sl
                                                    : DownloadOutcome::notFound, slug);
         if (slug == stockSlug)
             result.version = stockVersion;
-        juce::MessageManager::callAsync([callback, result] { if (callback) callback(result); });
+        platform::callOnMainThread([callback, result] { if (callback) callback(result); });
         return;
     }
 
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("action", "download");
-    body->setProperty("token", token);
-    body->setProperty("slug", slug);
+    auto body = platform::Json::object();
+    body.set("action", "download");
+    body.set("token", token);
+    body.set("slug", slug);
 
-    const juce::WeakReference<PackStoreClient> weakThis(this);
-    transport_.postJson(functionUrl(), juce::JSON::toString(juce::var(body.get()), true),
-                        maxControlReplyBytes,
-                        [weakThis, slug, done = std::move(callback)](StoreReply reply)
+    const auto weakThis = lifetime_.weak();
+    auto* const owner = this;
+    transport_.postJson(functionUrl(), body.dump(), maxControlReplyBytes,
+                        [weakThis, owner, slug, done = std::move(callback)](StoreReply reply)
                         {
-                            if (auto* self = weakThis.get())
-                                self->deliverDownloadGrant(slug, reply, done);
+                            if (platform::LifetimeToken::alive(weakThis))
+                                owner->deliverDownloadGrant(slug, reply, done);
                         });
 }
 
-void PackStoreClient::deliverDownloadGrant(const juce::String& slug, const StoreReply& reply,
+void PackStoreClient::deliverDownloadGrant(const std::string& slug, const StoreReply& reply,
                                            DownloadCallback callback)
 {
     const auto finish = [&callback](DownloadResult result)
@@ -399,10 +386,10 @@ void PackStoreClient::deliverDownloadGrant(const juce::String& slug, const Store
         {
             auto result = makeResult(DownloadOutcome::membershipRequired, slug);
             const auto unlockUrl = stringAt(body, "unlock_url");
-            result.unlockUrl = unlockUrl.startsWithIgnoreCase("https://") ? unlockUrl
-                                                                          : juce::String(defaultUnlockUrl);
-            const auto unlockMessage = stringAt(body, "unlock_message").trim();
-            if (unlockMessage.isNotEmpty() && unlockMessage.length() <= 200)
+            result.unlockUrl = text::startsWith(text::toLower(unlockUrl), "https://")
+                ? unlockUrl : std::string(defaultUnlockUrl);
+            const auto unlockMessage = text::trim(stringAt(body, "unlock_message"));
+            if (!unlockMessage.empty() && text::utf8Length(unlockMessage) <= 200)
                 result.message = unlockMessage;
             return finish(result);
         }
@@ -411,32 +398,35 @@ void PackStoreClient::deliverDownloadGrant(const juce::String& slug, const Store
 
     const auto grantedSlug = stringAt(body, "slug");
     const auto version = stringAt(body, "version");
-    const auto sha256 = stringAt(body, "sha256").toLowerCase();
+    const auto sha256 = text::toLower(stringAt(body, "sha256"));
     const auto downloadUrl = stringAt(body, "download_url");
 
-    if (reply.truncated || !static_cast<bool>(body.getProperty("ok", false)) || grantedSlug != slug
-        || !isValidSha256Hex(sha256) || downloadUrl.isEmpty())
+    const auto& okValue = body["ok"];
+    const bool ok = okValue.isBool() ? okValue.asBool() : licensing::varNumber(okValue) != 0.0;
+    if (reply.truncated || !ok || grantedSlug != slug
+        || !isValidSha256Hex(sha256) || downloadUrl.empty())
         return finish(makeResult(DownloadOutcome::invalidResponse, slug));
     if (!isAllowedStoreUrl(downloadUrl))
         return finish(makeResult(DownloadOutcome::insecureUrl, slug));
 
-    const juce::WeakReference<PackStoreClient> weakThis(this);
+    const auto weakThis = lifetime_.weak();
+    auto* const owner = this;
     transport_.get(downloadUrl, maxPackBytes,
-                   [weakThis, slug, version, sha256, callback](StoreReply packReply)
+                   [weakThis, owner, slug, version, sha256, callback](StoreReply packReply)
                    {
-                       if (auto* self = weakThis.get())
-                           self->deliverPackBytes(slug, version, sha256, packReply, callback);
+                       if (platform::LifetimeToken::alive(weakThis))
+                           owner->deliverPackBytes(slug, version, sha256, packReply, callback);
                    });
 }
 
-void PackStoreClient::deliverPackBytes(const juce::String& slug, const juce::String& version,
-                                       const juce::String& sha256, const StoreReply& reply,
+void PackStoreClient::deliverPackBytes(const std::string& slug, const std::string& version,
+                                       const std::string& sha256, const StoreReply& reply,
                                        DownloadCallback callback)
 {
     DownloadResult result;
     if (!reply.transportOk)
         result = makeResult(DownloadOutcome::transportFailed, slug);
-    else if (reply.truncated || reply.body.getSize() > maxPackBytes)
+    else if (reply.truncated || reply.body.size() > maxPackBytes)
         result = makeResult(DownloadOutcome::tooLarge, slug);
     else if (reply.status == 404 || reply.status == 400 || reply.status == 403)
         result = makeResult(DownloadOutcome::notFound, slug); // e.g. an expired signed URL
@@ -445,10 +435,10 @@ void PackStoreClient::deliverPackBytes(const juce::String& slug, const juce::Str
     else
     {
         const auto error = library_.install(slug, reply.body, sha256);
-        if (error.isNotEmpty())
+        if (!error.empty())
         {
             result = makeResult(DownloadOutcome::installFailed, slug);
-            result.message << ": " << error;
+            result.message += ": " + error;
         }
         else
         {
@@ -465,14 +455,14 @@ void PackStoreClient::deliverPackBytes(const juce::String& slug, const juce::Str
 }
 
 // =========================================================== store view
-juce::String statusText(PackStatus status, int presetCount, const juce::String& latestVersion)
+std::string statusText(PackStatus status, int presetCount, const std::string& latestVersion)
 {
     switch (status)
     {
         case PackStatus::builtIn: return "Built in" + interpunct() + presetsText(presetCount);
         case PackStatus::installed: return "Installed" + interpunct() + presetsText(presetCount);
         case PackStatus::updateAvailable:
-            return latestVersion.isEmpty() ? juce::String("Update available")
+            return latestVersion.empty() ? std::string("Update available")
                                            : "Update available" + interpunct() + latestVersion;
         case PackStatus::available: return "Click to download";
         case PackStatus::requiresMembership: return "Music-Prod+ required";
@@ -547,7 +537,7 @@ std::vector<PackListing> mergeListings(const Catalog* catalog, const PackLibrary
                 listing.status = member ? PackStatus::available : lockedStatus;
             }
 
-            listing.usable = listing.installedVersion.isNotEmpty() && member;
+            listing.usable = !listing.installedVersion.empty() && member;
             listing.canDownload = member
                 && (listing.status == PackStatus::available
                     || listing.status == PackStatus::updateAvailable);

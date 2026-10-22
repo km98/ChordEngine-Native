@@ -7,8 +7,10 @@
 
 #include "Audio/InternalSynth.h"
 
-#include <juce_audio_basics/juce_audio_basics.h>
+#include "AudioTestSupport.h"
+#include "MIDI/MidiEvents.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <initializer_list>
@@ -64,7 +66,7 @@ struct Rig
 {
     InternalSynth synth;
     double sampleRate = 44100.0;
-    juce::AudioBuffer<float> buffer{ 2, blockSize };
+    chordengine::test::AudioBuffer buffer{ 2, blockSize };
     long rendered = 0;
 
     Rig(Sound sound, double rate, bool bassLowestOnly = true) : sampleRate(rate)
@@ -144,11 +146,11 @@ double dominantFrequency(const std::vector<float>& samples, double sampleRate)
     const auto n = samples.size();
     std::vector<double> windowed(n);
     for (std::size_t i = 0; i < n; ++i)
-        windowed[i] = samples[i] * (0.5 - 0.5 * std::cos(2.0 * juce::MathConstants<double>::pi * static_cast<double>(i) / static_cast<double>(n - 1)));
+        windowed[i] = samples[i] * (0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * static_cast<double>(i) / static_cast<double>(n - 1)));
 
     auto power = [&](double frequency)
     {
-        const double coeff = 2.0 * std::cos(2.0 * juce::MathConstants<double>::pi * frequency / sampleRate);
+        const double coeff = 2.0 * std::cos(2.0 * 3.14159265358979323846 * frequency / sampleRate);
         double s1 = 0.0, s2 = 0.0;
         for (double x : windowed)
         {
@@ -232,8 +234,8 @@ void testSound(Sound sound, double rate)
 
     {
         Rig rig(sound, rate);
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 200);
+        chordengine::midi::MidiEventList midi(64);
+        midi.add(chordengine::midi::MidiEvent::noteOn(200, 1, 60, 100));
         rig.buffer.clear();
         rig.synth.process(rig.buffer, midi);
         Stats stats;
@@ -242,24 +244,24 @@ void testSound(Sound sound, double rate)
               tag + "process() onset at 200 (got " + std::to_string(stats.firstNonZero) + ")");
 
         midi.clear();
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(0)), 10); // vel 0 = off
+        midi.add(chordengine::midi::MidiEvent::noteOn(10, 1, 60, 0)); // vel 0 = off
         rig.buffer.clear();
         rig.synth.process(rig.buffer, midi);
         double took = rig.secondsUntilSilent(settle, stats);
         check(took >= 0.0, tag + "process() note-on vel 0 releases");
 
         midi.clear();
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
-        midi.addEvent(juce::MidiMessage::noteOn(1, 64, static_cast<juce::uint8>(100)), 0);
-        midi.addEvent(juce::MidiMessage::allSoundOff(1), 300);
+        midi.add(chordengine::midi::MidiEvent::noteOn(0, 1, 60, 100));
+        midi.add(chordengine::midi::MidiEvent::noteOn(0, 1, 64, 100));
+        midi.add(chordengine::midi::MidiEvent::controller(300, 1, 120, 0));
         rig.buffer.clear();
         rig.synth.process(rig.buffer, midi);
         took = rig.secondsUntilSilent(0.05, stats);
         check(took >= 0.0, tag + "process() CC 120 fades out within 50 ms");
 
         midi.clear();
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
-        midi.addEvent(juce::MidiMessage::allNotesOff(1), 300);
+        midi.add(chordengine::midi::MidiEvent::noteOn(0, 1, 60, 100));
+        midi.add(chordengine::midi::MidiEvent::controller(300, 1, 123, 0));
         rig.buffer.clear();
         rig.synth.process(rig.buffer, midi);
         took = rig.secondsUntilSilent(settle, stats);
@@ -304,7 +306,7 @@ void testSound(Sound sound, double rate)
         {
             onDc.buffer.clear();
             for (int channel = 0; channel < 2; ++channel)
-                juce::FloatVectorOperations::fill(onDc.buffer.getWritePointer(channel), 0.25f, blockSize);
+                std::fill(onDc.buffer.getWritePointer(channel), onDc.buffer.getWritePointer(channel) + blockSize, 0.25f);
             onZero.buffer.clear();
             onDc.synth.render(onDc.buffer, 0, blockSize);
             onZero.synth.render(onZero.buffer, 0, blockSize);

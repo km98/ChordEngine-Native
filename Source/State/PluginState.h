@@ -3,7 +3,7 @@
 #include "../Core/ChordEngineCore.h"
 #include "../MIDI/TakeQuantize.h"
 
-#include <juce_core/juce_core.h>
+#include <string>
 
 #include <cstddef>
 #include <cstdint>
@@ -16,9 +16,9 @@ namespace chordengine::state
 // pack is installed there. configuration.preset remains the stock fallback.
 struct PackPresetState
 {
-    juce::String packSlug;
-    juce::String packName;
-    juce::String presetName;
+    std::string packSlug;
+    std::string packName;
+    std::string presetName;
     chordengine::core::CustomChordPreset preset{};
 };
 
@@ -43,6 +43,10 @@ struct PluginState
     std::optional<chordengine::midi::TakeQuantize> recordQuantize;
     // FOLLOW DAW RECORD. Absent in older payloads (the processor keeps off).
     std::optional<bool> followHostRecord;
+    // The VST3 host's bypass switch, stored with the state so a reloaded
+    // project keeps it (0.5.x kept it in a private trailer). Written only by
+    // the VST3 and only when on; ignored by the processor.
+    std::optional<bool> hostBypass;
 };
 
 // Format version 1. Bump only with a migration path for older payloads.
@@ -52,7 +56,7 @@ inline constexpr int currentFormatVersion = 1;
 inline constexpr std::size_t maximumSerializedBytes = 4096;
 
 // Serializes the state as a UTF-8 XML document (root CHORDENGINE_STATE).
-juce::String serialize(const PluginState& state);
+std::string serialize(const PluginState& state);
 
 // Parses a host payload. Returns std::nullopt for anything malformed,
 // incomplete-in-a-way-that-cannot-be-defaulted, invalid, oversized or of an

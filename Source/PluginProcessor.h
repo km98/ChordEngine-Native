@@ -1,20 +1,23 @@
 #pragma once
 
-#include <juce_audio_utils/juce_audio_utils.h>
-
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 
+#include "Audio/AudioBlock.h"
 #include "Audio/InternalSynth.h"
 #include "Core/ChordEngineCore.h"
 #include "Licensing/LicensingRuntime.h"
+#include "MIDI/MidiEvents.h"
 #include "MIDI/MidiNoteTracker.h"
 #include "State/PluginState.h"
 
+#include <filesystem>
+#include <memory>
 #include <optional>
+#include <string>
 
 // Builds with an audio output (the VST3 and the ChordEngine Instrument AU) can
 // play the generated chords through the internal synth. The MIDI FX AU has no
@@ -27,32 +30,60 @@
  #define CHORDENGINE_INTERNAL_AUDIO_DEFAULT_ON 0
 #endif
 
-class ChordEngineAudioProcessor final : public juce::AudioProcessor
+// What the host reports about its transport for the current block. Every
+// field is optional because hosts differ in what they provide; the adapters
+// (AU, VST3) fill it before each processBlock().
+struct HostTransport
+{
+    bool isPlaying = false;
+    bool isRecording = false;
+    std::optional<double> bpm;
+    std::optional<double> ppqPosition;          // at the block's first sample
+    std::optional<double> ppqPositionOfLastBarStart;
+    std::optional<int> timeSignatureNumerator;
+    std::optional<int> timeSignatureDenominator;
+};
+
+// =====================================================================
+// The ChordEngine processor: the MIDI engine, the recorder, the internal
+// synth, the host state and the licensing runtime, in plain C++. The format
+// adapters (Source/AU, Source/VST3) host it; the AppKit editor displays it.
+// =====================================================================
+class ChordEngineAudioProcessor final
 {
 public:
     explicit ChordEngineAudioProcessor(bool withAudioOutput = CHORDENGINE_AUDIO_OUTPUT != 0);
-    ~ChordEngineAudioProcessor() override;
+    ~ChordEngineAudioProcessor();
+    ChordEngineAudioProcessor(const ChordEngineAudioProcessor&) = delete;
+    ChordEngineAudioProcessor& operator=(const ChordEngineAudioProcessor&) = delete;
 
-    void prepareToPlay(double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
-    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
-    void processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi) override;
+    // Allocates (not on the audio thread).
+    void prepareToPlay(double sampleRate, int samplesPerBlock);
+    void releaseResources();
+    // Output channel counts this build accepts on its one output bus (none for
+    // the MIDI FX; mono or stereo for the builds with internal audio).
+    bool supportsOutputChannels(int channels) const noexcept
+    {
+        return hasAudioOutput_ ? (channels == 1 || channels == 2) : channels == 0;
+    }
 
-    juce::AudioProcessorEditor* createEditor() override;
-    bool hasEditor() const override { return true; }
+    // One block. `midi` holds the host's input events (sorted by offset) and
+    // is replaced by the output events, as the 0.5 processor did. `audio`
+    // may have no channels (the MIDI FX). Real-time safe after prepareToPlay.
+    void processBlock(const chordengine::audio::AudioBlock& audio, chordengine::midi::MidiEventList& midi,
+                      const HostTransport& transport = {});
 
-    const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return true; }
-    bool isMidiEffect() const override { return !hasAudioOutput_; }
-    double getTailLengthSeconds() const override { return hasAudioOutput_ ? 3.0 : 0.0; }
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
-    void changeProgramName(int, const juce::String&) override {}
-    void getStateInformation(juce::MemoryBlock& destination) override;
-    void setStateInformation(const void* data, int sizeInBytes) override;
+    static constexpr std::size_t midiEventCapacity = 4096;
+
+    bool acceptsMidi() const noexcept { return true; }
+    bool producesMidi() const noexcept { return true; }
+    bool isMidiEffect() const noexcept { return !hasAudioOutput_; }
+    double getTailLengthSeconds() const noexcept { return hasAudioOutput_ ? 3.0 : 0.0; }
+
+    // The host state: a UTF-8 XML document (see State/PluginState.h), the
+    // same bytes 0.5.x wrote.
+    std::string getStateInformation() const;
+    void setStateInformation(const void* data, std::size_t sizeInBytes);
 
     chordengine::core::CoreConfiguration configurationSnapshot() const noexcept;
     chordengine::state::PluginState stateSnapshot() const;
@@ -120,7 +151,7 @@ public:
     chordengine::licensing::LicensingRuntime& licensing() noexcept { return *licensing_; }
     // Where auth.json lives: Music-Prod/ChordEngine in Application Support,
     // or a private temporary folder in the isolated test builds.
-    static juce::File defaultLicensingStorageDir();
+    static std::filesystem::path defaultLicensingStorageDir();
 
     // Licensing gate. The audio path READS one lock-free flag; the message
     // thread (LicensingBoundary) is the only writer. When the gate is closed
@@ -154,7 +185,9 @@ public:
     void pushUiNoteOff(int channel, int note) noexcept;
 
     bool isRecorderRecording() const noexcept { return recorderState_.load(std::memory_order_acquire) == 2; }
-    bool exportRecorderTake(std::uint8_t newestFirstIndex, juce::File& destination) const;
+    bool exportRecorderTake(std::uint8_t newestFirstIndex, const std::filesystem::path& destination) const;
+    // The same file as bytes (what exportRecorderTake writes).
+    std::optional<std::string> exportRecorderTakeBytes(std::uint8_t newestFirstIndex) const;
     // Read-only take summary for the UI take rows (never used by the audio path).
     int recorderTakeNoteCount(std::uint8_t newestFirstIndex) const noexcept;
 
@@ -267,7 +300,8 @@ private:
     bool finalizeRecorderTake() noexcept;
     void resetRecorderForPlaybackBoundary() noexcept;
     void followHostRecording() noexcept;
-    void renderInternalAudio(juce::AudioBuffer<float>& audio, const juce::MidiBuffer& generated) noexcept;
+    void renderInternalAudio(const chordengine::audio::AudioBlock& audio,
+                             const chordengine::midi::MidiEventList& generated) noexcept;
     // Audio thread only: the host transport's record state last block, and
     // whether the current take was armed by it (see followHostRecording).
     bool hostWasRecording_ = false;
@@ -284,9 +318,17 @@ private:
         bool noteOn = false;
     };
     static constexpr int uiMidiQueueCapacity = 64;
-    void drainUiMidi(juce::MidiBuffer& destination) noexcept;
-    juce::AbstractFifo uiMidiFifo_ { uiMidiQueueCapacity };
+    void drainUiMidi(chordengine::midi::MidiEventList& destination) noexcept;
+    // Single-producer / single-consumer ring: the message thread writes at
+    // uiMidiWrite_, the audio thread reads at uiMidiRead_. One slot stays free.
     std::array<UiMidiEvent, uiMidiQueueCapacity> uiMidiEvents_ {};
+    std::atomic<int> uiMidiWrite_ { 0 };
+    std::atomic<int> uiMidiRead_ { 0 };
+    void pushUiEvent(const UiMidiEvent& event) noexcept;
+    // The current block's transport (audio thread).
+    HostTransport transport_ {};
+    // Preallocated in prepareToPlay: the block's output events.
+    chordengine::midi::MidiEventList blockOutput_;
     chordengine::core::ChordEngineCore core_;
     const bool hasAudioOutput_;
 
@@ -300,7 +342,7 @@ private:
     std::uint32_t appliedCustomPresetGeneration_ = 0;
     void applyCustomPresetFromAudioThread() noexcept;
     // What the editor and the host state see; message thread / state calls.
-    mutable juce::SpinLock packPresetLock_;
+    mutable std::atomic_flag packPresetLock_ = ATOMIC_FLAG_INIT;
     std::optional<PackPreset> packPresetSelection_;
 
     chordengine::audio::InternalSynth internalSynth_;
@@ -347,7 +389,7 @@ private:
     chordengine::midi::TakeGridAnchor recorderAnchor_ {};
     int recorderTimeSignatureNumerator_ = 4;
     int recorderTimeSignatureDenominator_ = 4;
-    void captureRecorderGridAnchor(const juce::AudioPlayHead::PositionInfo& position, int sampleOffset) noexcept;
+    void captureRecorderGridAnchor(const HostTransport& position, int sampleOffset) noexcept;
     std::atomic<std::uint8_t> recordQuantize_ { 0 };
     std::atomic<bool> followHostRecord_ { false };
     bool recorderOverflow_ = false;
@@ -356,8 +398,6 @@ private:
     chordengine::core::CoreResult coreResult_;
 
     // Declared last: destroyed first, while the gate it publishes to exists.
-    juce::File isolatedLicensingDir_;
+    std::filesystem::path isolatedLicensingDir_;
     std::unique_ptr<chordengine::licensing::LicensingRuntime> licensing_;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChordEngineAudioProcessor)
 };

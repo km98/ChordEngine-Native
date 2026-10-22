@@ -17,7 +17,12 @@
 #include "Updates/UpdateTransport.h"
 #include "Updates/UpdateTypes.h"
 
-#include <juce_events/juce_events.h>
+#include "Platform/Text.h"
+#include "TestSupport.h"
+
+#include <algorithm>
+#include <filesystem>
+
 
 #include <cstdlib>
 #include <iostream>
@@ -29,13 +34,13 @@ namespace
 {
 int casesPassed = 0;
 
-[[noreturn]] void fail(const juce::String& message)
+[[noreturn]] void fail(const std::string& message)
 {
     std::cerr << "FAIL: " << message << '\n';
     std::exit(EXIT_FAILURE);
 }
 
-void require(bool condition, const juce::String& message)
+void require(bool condition, const std::string& message)
 {
     if (!condition)
         fail(message);
@@ -72,7 +77,7 @@ const char* mandatoryUpdateBody =
 struct ScriptedReply
 {
     int status = 200;
-    juce::String body;
+    std::string body;
     bool transportOk = true;
     bool timedOut = false;
 };
@@ -83,9 +88,9 @@ struct ScriptedReply
 class FakeTransport final : public UpdateTransport
 {
 public:
-    chordengine::updates::TransportReply get(const juce::String& url) override
+    chordengine::updates::TransportReply get(const std::string& url) override
     {
-        requestUrls.add(url);
+        requestUrls.push_back(url);
         ++calls;
 
         chordengine::updates::TransportReply reply;
@@ -93,7 +98,7 @@ public:
             return reply; // transportOk stays false
 
         const auto index = static_cast<std::size_t>(
-            juce::jmin(calls - 1, static_cast<int>(scripted.size()) - 1));
+            std::min(calls - 1, static_cast<int>(scripted.size()) - 1));
 
         const auto& entry = scripted[index];
         reply.status = entry.status;
@@ -104,7 +109,7 @@ public:
     }
 
     std::vector<ScriptedReply> scripted;
-    juce::Array<juce::String> requestUrls;
+    std::vector<std::string> requestUrls;
     int calls = 0;
 };
 
@@ -118,39 +123,38 @@ struct ViewRecorder
         { statuses.push_back(chordengine::updates::statusLine(service.view())); };
     }
 
-    std::vector<juce::String> statuses;
+    std::vector<std::string> statuses;
 };
 
 // --------------------------------------------------------------- helpers
-juce::File temporaryDirectory(const juce::String& name)
+std::filesystem::path temporaryDirectory(const std::string& name)
 {
-    auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                   .getChildFile("ChordEngine-UpdateTests")
-                   .getChildFile(name);
-    dir.deleteRecursively();
-    dir.createDirectory();
-    return dir;
+    return chordengine::test::freshDirectory("ChordEngine-UpdateTests", name);
 }
 
-juce::File temporaryCacheFile(const juce::String& name)
+std::filesystem::path temporaryCacheFile(const std::string& name)
 {
-    return temporaryDirectory(name).getChildFile(UpdateCache::fileName);
+    return temporaryDirectory(name) / UpdateCache::fileName;
 }
 
 void pumpMessages(int milliseconds)
 {
-    if (auto* manager = juce::MessageManager::getInstanceWithoutCreating())
-        manager->runDispatchLoopUntil(milliseconds);
+    chordengine::platform::runMainLoopFor(milliseconds);
 }
 
-juce::String readSourceFile(const juce::String& relativePath)
+bool containsIgnoreCase(const std::string& text, const std::string& part)
 {
-    const juce::File file(juce::String(CHORDENGINE_SOURCE_DIR) + "/" + relativePath);
-    require(file.existsAsFile(), "source file must exist: " + relativePath);
-    return file.loadFileAsString();
+    return chordengine::text::contains(chordengine::text::toLower(text), chordengine::text::toLower(part));
 }
 
-juce::var parseBody(const juce::String& body)
+std::string readSourceFile(const std::string& relativePath)
+{
+    const std::filesystem::path file(std::string(CHORDENGINE_SOURCE_DIR) + "/" + relativePath);
+    require(std::filesystem::exists(file), "source file must exist: " + relativePath);
+    return chordengine::test::readText(file);
+}
+
+chordengine::platform::Json parseBody(const std::string& body)
 {
     return chordengine::updates::parseJsonText(body);
 }
@@ -158,8 +162,6 @@ juce::var parseBody(const juce::String& body)
 
 int main()
 {
-    const juce::ScopedJuceInitialiser_GUI guiInitialiser;
-    juce::ignoreUnused(guiInitialiser);
 
     const auto platform = chordengine::updates::platformName();
 
@@ -174,7 +176,7 @@ int main()
                 "noPublishedRelease: the status word wins over the upToDate decision");
         require(parsed.status != UpdateStatus::upToDate,
                 "noPublishedRelease: it must never be mapped to 'Up to date'");
-        require(parsed.latestVersion.isEmpty(),
+        require(parsed.latestVersion.empty(),
                 "noPublishedRelease: no latest version may be invented");
 
         UpdateView view;
@@ -187,9 +189,9 @@ int main()
         require(chordengine::updates::statusLine(view) == "Status  No published release",
                 "noPublishedRelease: the Status row states it honestly");
         require(chordengine::updates::currentVersionLine(view)
-                    == "Current version  " + juce::String(JucePlugin_VersionString),
+                    == "Current version  " + std::string(CHORDENGINE_PLUGIN_VERSION_STRING),
                 "noPublishedRelease: the Current row shows the actual build version");
-        require(!chordengine::updates::latestVersionLine(view).contains(" -"),
+        require(!chordengine::text::contains(chordengine::updates::latestVersionLine(view), " -"),
                 "noPublishedRelease: a real answer never renders as a placeholder dash");
         casePassed();
     }
@@ -392,8 +394,8 @@ int main()
 
         // Through the real service: one retry, then the published live answer.
         auto retrying = std::make_unique<FakeTransport>();
-        retrying->scripted = { { 503, juce::String(backendUnavailableBody), true, false },
-                               { 200, juce::String(liveNoPublishedRelease), true, false } };
+        retrying->scripted = { { 503, std::string(backendUnavailableBody), true, false },
+                               { 200, std::string(liveNoPublishedRelease), true, false } };
         auto* retryingRaw = retrying.get();
         UpdateService retryService(chordengine::updates::currentBuildVersionString,
                               temporaryCacheFile("retry"), std::move(retrying));
@@ -404,7 +406,7 @@ int main()
 
         // A 500 is not retried and reports an error, never success.
         auto single = std::make_unique<FakeTransport>();
-        single->scripted = { { 500, juce::String(R"({"success":false,"errorCode":"internalReleaseError"})"),
+        single->scripted = { { 500, std::string(R"({"success":false,"errorCode":"internalReleaseError"})"),
                                true, false } };
         auto* singleRaw = single.get();
         UpdateService singleService(chordengine::updates::currentBuildVersionString,
@@ -428,7 +430,7 @@ int main()
         const auto cold = coldService.performCheck();
         require(cold.status == UpdateStatus::error, "offline: no cache means an error state");
         require(cold.status != UpdateStatus::upToDate, "offline: never 'Up to date'");
-        require(cold.detail.contains("Offline"), "offline: the reason is stated");
+        require(chordengine::text::contains(cold.detail, "Offline"), "offline: the reason is stated");
         require(chordengine::updates::latestVersionLine(cold) == "Latest version  -",
                 "offline: with no answer the Latest row stays a placeholder");
         require(chordengine::updates::statusLine(cold)
@@ -439,12 +441,12 @@ int main()
         const auto cacheFile = temporaryCacheFile("offline-warm");
         {
             auto online = std::make_unique<FakeTransport>();
-            online->scripted = { { 200, juce::String(liveNoPublishedRelease), true, false } };
+            online->scripted = { { 200, std::string(liveNoPublishedRelease), true, false } };
             UpdateService seeding(chordengine::updates::currentBuildVersionString,
                               cacheFile, std::move(online));
             const auto seeded = seeding.performCheck();
             require(seeded.status == UpdateStatus::noPublishedRelease, "offline: the seed succeeded");
-            require(cacheFile.existsAsFile(), "offline: the successful answer is cached");
+            require(std::filesystem::exists(cacheFile), "offline: the successful answer is cached");
         }
 
         auto offline = std::make_unique<FakeTransport>(); // empty script: unreachable
@@ -460,7 +462,7 @@ int main()
         require(chordengine::updates::statusLine(warm)
                     == "Status  Offline - showing cached result",
                 "offline: the Status row says the cached answer is shown");
-        require(!chordengine::updates::statusLine(warm).contains("Up to date"),
+        require(!chordengine::text::contains(chordengine::updates::statusLine(warm), "Up to date"),
                 "offline: the cached answer is not relabelled as up to date");
         casePassed();
     }
@@ -473,7 +475,7 @@ int main()
         const auto cacheFile = temporaryCacheFile("cache-round-trip");
         {
             auto online = std::make_unique<FakeTransport>();
-            online->scripted = { { 200, juce::String(liveNoPublishedRelease), true, false } };
+            online->scripted = { { 200, std::string(liveNoPublishedRelease), true, false } };
             UpdateService seeding(chordengine::updates::currentBuildVersionString,
                               cacheFile, std::move(online));
             seeding.performCheck();
@@ -485,18 +487,18 @@ int main()
         require(loaded.product == "chordengine", "cache: the product is recorded");
         require(loaded.platform == platform, "cache: the platform is recorded");
         require(loaded.serverStatus == "noPublishedRelease", "cache: the status is recorded");
-        require(loaded.latestVersion.isEmpty(), "cache: a null latest version stays empty");
+        require(loaded.latestVersion.empty(), "cache: a null latest version stays empty");
         require(loaded.checkedAtMs > 0, "cache: the timestamp is recorded");
 
         // Only the normalised public fields are stored. Nothing account- or
         // licence-related is ever written.
-        const auto cacheText = cacheFile.loadFileAsString();
+        const auto cacheText = chordengine::test::readText(cacheFile);
         for (const auto* forbidden : { "\"token\"", "\"password\"", "\"secret\"",
                                        "\"credential\"", "\"authorization\"", "\"trial\"",
                                        "\"entitlement\"", "\"auth\"" })
-            require(!cacheText.containsIgnoreCase(forbidden),
-                    juce::String("cache: it must never store ") + forbidden);
-        require(cacheText.contains("checked_at"), "cache: the timestamp field is present");
+            require(!containsIgnoreCase(cacheText, forbidden),
+                    std::string("cache: it must never store ") + forbidden);
+        require(chordengine::text::contains(cacheText, "checked_at"), "cache: the timestamp field is present");
 
         // A fresh launch shows the cached answer AT ONCE (marked cached) and
         // then performs exactly one fresh check.
@@ -533,7 +535,7 @@ int main()
     // =================================================================
     {
         auto transport = std::make_unique<FakeTransport>();
-        transport->scripted = { { 200, juce::String(liveNoPublishedRelease), true, false } };
+        transport->scripted = { { 200, std::string(liveNoPublishedRelease), true, false } };
         auto* raw = transport.get();
         UpdateService service(chordengine::updates::currentBuildVersionString,
                               temporaryCacheFile("transitions"), std::move(transport));
@@ -577,7 +579,7 @@ int main()
         // The request itself: only the product, the build version and the
         // platform are ever sent, on an unauthenticated GET.
         auto transport = std::make_unique<FakeTransport>();
-        transport->scripted = { { 200, juce::String(liveNoPublishedRelease), true, false } };
+        transport->scripted = { { 200, std::string(liveNoPublishedRelease), true, false } };
         auto* raw = transport.get();
         UpdateService service(chordengine::updates::currentBuildVersionString,
                               temporaryCacheFile("anonymous"), std::move(transport));
@@ -591,10 +593,10 @@ int main()
         require(url == documentedUrl,
                 "anonymous: the request is exactly the documented URL (got '" + url
                     + "', expected '" + documentedUrl + "')");
-        require(url.contains("product=chordengine"), "anonymous: the product is sent");
-        require(!url.contains("token"), "anonymous: no token is sent");
-        require(!url.contains("authorization"), "anonymous: no authorization header value is sent");
-        require(!url.contains("api_key") && !url.contains("apikey"),
+        require(chordengine::text::contains(url, "product=chordengine"), "anonymous: the product is sent");
+        require(!chordengine::text::contains(url, "token"), "anonymous: no token is sent");
+        require(!chordengine::text::contains(url, "authorization"), "anonymous: no authorization header value is sent");
+        require(!chordengine::text::contains(url, "api_key") && !chordengine::text::contains(url, "apikey"),
                 "anonymous: no API key is sent");
 
         // The module's own sources carry no account wiring at all.
@@ -609,8 +611,8 @@ int main()
                                            "secret", "credential", "hasToken", "authToken",
                                            "access_token", "refresh_token", "LicensingModel",
                                            "Snapshot", "entitlements" })
-                require(!source.containsIgnoreCase(forbidden),
-                        juce::String("anonymous: ") + file + " must not reference " + forbidden);
+                require(!containsIgnoreCase(source, forbidden),
+                        std::string("anonymous: ") + file + " must not reference " + forbidden);
         }
 
         // And the check needs no account: it performs identically with no
@@ -627,25 +629,23 @@ int main()
         const auto processorSource = readSourceFile("Source/PluginProcessor.cpp");
         const auto processorHeader = readSourceFile("Source/PluginProcessor.h");
 
-        require(!processorHeader.contains("Updates/"),
+        require(!chordengine::text::contains(processorHeader, "Updates/"),
                 "realtime isolation: the processor header includes no update code");
 
-        const auto blockStart = processorSource.indexOf("void ChordEngineAudioProcessor::processBlock");
-        require(blockStart >= 0, "realtime isolation: processBlock must exist");
-        const auto tail = processorSource.substring(blockStart);
-        const auto relativeEnd = tail.indexOf(
-            "juce::AudioProcessorEditor* ChordEngineAudioProcessor::createEditor");
-        require(relativeEnd > 0, "realtime isolation: processBlock bounds must be found");
-        const auto processBlockBody = tail.substring(0, relativeEnd);
+        const auto blockStart = processorSource.find("void ChordEngineAudioProcessor::processBlock");
+        require(blockStart != std::string::npos, "realtime isolation: processBlock must exist");
+        const auto tail = processorSource.substr(blockStart);
+        const auto relativeEnd = tail.find("void ChordEngineAudioProcessor::renderInternalAudio");
+        require(relativeEnd != std::string::npos, "realtime isolation: processBlock bounds must be found");
+        const auto processBlockBody = tail.substr(0, relativeEnd);
 
         for (const auto* token : { "UpdateService", "updateService", "updates::", "UpdateTransport",
-                                   "juce::URL", "createInputStream", "ThreadPool", "callAsync",
-                                   "MessageManager", "UpdateCache" })
-            require(!processBlockBody.contains(token),
-                    juce::String("realtime isolation: processBlock must not reference '") + token + "'");
+                                   "httpRequest", "WorkerQueue", "callOnMainThread", "UpdateCache" })
+            require(!chordengine::text::contains(processBlockBody, token),
+                    std::string("realtime isolation: processBlock must not reference '") + token + "'");
 
         // The update client is reached only through the editor.
-        require(!processorSource.contains("UpdateService"),
+        require(!chordengine::text::contains(processorSource, "UpdateService"),
                 "realtime isolation: the processor never names the update client");
         casePassed();
     }
@@ -655,7 +655,7 @@ int main()
     // =================================================================
     {
         auto transport = std::make_unique<FakeTransport>();
-        transport->scripted = { { 200, juce::String(liveNoPublishedRelease), true, false } };
+        transport->scripted = { { 200, std::string(liveNoPublishedRelease), true, false } };
         UpdateService service(chordengine::updates::currentBuildVersionString,
                               temporaryCacheFile("workers"), std::move(transport));
         require(service.workerCount() == 1, "workers: exactly one background worker is created");
@@ -668,12 +668,11 @@ int main()
 
         // The worker provision is a single, literal job of the source.
         const auto header = readSourceFile("Source/Updates/UpdateService.h");
-        require(header.contains("juce::ThreadPool pool_ { 1 }"),
-                "workers: the pool is declared with exactly one thread");
-        require(header.contains("MessageManager"), "workers: results are delivered on the message thread");
+        require(chordengine::text::contains(header, "platform::WorkerQueue worker_"),
+                "workers: the client owns exactly one worker queue");
         const auto source = readSourceFile("Source/Updates/UpdateService.cpp");
-        require(source.contains("MessageManager::callAsync"),
-                "workers: the result is handed back with callAsync");
+        require(chordengine::text::contains(source, "platform::callOnMainThread"),
+                "workers: the result is handed back on the main thread");
         casePassed();
     }
 
@@ -681,8 +680,8 @@ int main()
     // 16. The actual build version is the one that is sent and displayed.
     // =================================================================
     {
-        const juce::String expected(JucePlugin_VersionString);
-        const juce::String reportedBuildVersion(chordengine::updates::currentBuildVersionString);
+        const std::string expected(CHORDENGINE_PLUGIN_VERSION_STRING);
+        const std::string reportedBuildVersion(chordengine::updates::currentBuildVersionString);
         require(reportedBuildVersion == expected,
                 "build version: it comes from the build metadata");
         // The exact version is pinned by ChordEngineReleaseMetadataTests
@@ -694,20 +693,20 @@ int main()
                 "placeholder or the reference product's version");
         require(chordengine::updates::isValidSemver(expected),
                 "build version: it is a valid semver");
-        require(reportedBuildVersion != juce::String("0.4.0"),
+        require(reportedBuildVersion != std::string("0.4.0"),
                 "build version: 0.4.0 is not hardcoded anywhere in the client");
 
         auto transport = std::make_unique<FakeTransport>();
-        transport->scripted = { { 200, juce::String(liveNoPublishedRelease), true, false } };
+        transport->scripted = { { 200, std::string(liveNoPublishedRelease), true, false } };
         auto* raw = transport.get();
         UpdateService service(chordengine::updates::currentBuildVersionString,
                               temporaryCacheFile("build-version"), std::move(transport));
         const auto view = service.performCheck();
 
         require(raw->requestUrls.size() == 1, "build version: the check was made");
-        require(raw->requestUrls[0].contains("current=" + expected),
+        require(chordengine::text::contains(raw->requestUrls[0], "current=" + expected),
                 "build version: the request carries the actual build version");
-        require(raw->requestUrls[0].contains("platform=" + platform),
+        require(chordengine::text::contains(raw->requestUrls[0], "platform=" + platform),
                 "build version: the platform is always explicit");
         require(view.currentVersion == expected, "build version: the view reports the build version");
         require(chordengine::updates::currentVersionLine(view)
@@ -720,8 +719,8 @@ int main()
 
     constexpr int expectedCaseCount = 16;
     require(casesPassed == expectedCaseCount,
-            "every update case must run: expected " + juce::String(expectedCaseCount)
-                + ", executed " + juce::String(casesPassed));
+            "every update case must run: expected " + std::to_string(expectedCaseCount)
+                + ", executed " + std::to_string(casesPassed));
 
     std::cout << "ChordEngineUpdateTests: " << casesPassed << "/" << expectedCaseCount
               << " update client cases passed\n";

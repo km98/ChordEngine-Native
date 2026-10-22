@@ -1,6 +1,6 @@
 #include "MusicProdAuthService.h"
 
-#include <juce_events/juce_events.h>
+#include "Platform/Platform.h"
 
 namespace chordengine::licensing
 {
@@ -8,32 +8,23 @@ namespace
 {
 constexpr int connectionTimeoutMs = 12000;
 
-juce::var parseBody(const juce::String& text)
+platform::Json parseBody(const std::string& text)
 {
-    if (text.isEmpty())
+    if (text.empty())
         return {};
-
-    juce::var parsed;
-    const auto result = juce::JSON::parse(text, parsed);
-    if (result.failed() || result.getErrorMessage().isNotEmpty())
-        return {};
-    return parsed;
+    auto parsed = platform::Json::parse(text);
+    return parsed.has_value() ? *parsed : platform::Json();
 }
 }
 
 MusicProdAuthService::MusicProdAuthService() = default;
 
-MusicProdAuthService::~MusicProdAuthService()
-{
-    // Finish or cancel in-flight requests before the callbacks' owner can go
-    // away. The queued work is short-lived HTTP round trips.
-    pool_.removeAllJobs(true, 3000);
-}
+MusicProdAuthService::~MusicProdAuthService() = default;
 
-void MusicProdAuthService::start(const juce::String& deviceName,
-                                 const juce::String& pluginVersion,
-                                 const juce::String& product,
-                                 const juce::String& deviceId, Callback callback)
+void MusicProdAuthService::start(const std::string& deviceName,
+                                 const std::string& pluginVersion,
+                                 const std::string& product,
+                                 const std::string& deviceId, Callback callback)
 {
     // EXACT wire shape of vyre-plugin-auth `start`: `product` is the explicit
     // allowlisted slug (so the token's product never depends on the legacy
@@ -41,46 +32,46 @@ void MusicProdAuthService::start(const juce::String& deviceName,
     // id the device code stores and the token inherits - which is what later
     // lets the entitlement check recognise a licence slot held by THIS
     // computer.
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("action", "start");
-    body->setProperty("device_name", deviceName);
-    body->setProperty("plugin_version", pluginVersion);
-    body->setProperty("product", product);
-    if (deviceId.isNotEmpty())
-        body->setProperty("device_id", deviceId);
-    post(juce::var(body.get()), std::move(callback));
+    auto body = platform::Json::object();
+    body.set("action", "start");
+    body.set("device_name", deviceName);
+    body.set("plugin_version", pluginVersion);
+    body.set("product", product);
+    if (!deviceId.empty())
+        body.set("device_id", deviceId);
+    post(body, std::move(callback));
 }
 
-void MusicProdAuthService::poll(const juce::String& deviceCode, Callback callback)
+void MusicProdAuthService::poll(const std::string& deviceCode, Callback callback)
 {
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("action", "poll");
-    body->setProperty("device_code", deviceCode);
-    post(juce::var(body.get()), std::move(callback));
+    auto body = platform::Json::object();
+    body.set("action", "poll");
+    body.set("device_code", deviceCode);
+    post(body, std::move(callback));
 }
 
-void MusicProdAuthService::entitlements(const juce::String& token, Callback callback)
+void MusicProdAuthService::entitlements(const std::string& token, Callback callback)
 {
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("action", "entitlements");
-    body->setProperty("token", token);
-    post(juce::var(body.get()), std::move(callback));
+    auto body = platform::Json::object();
+    body.set("action", "entitlements");
+    body.set("token", token);
+    post(body, std::move(callback));
 }
 
-void MusicProdAuthService::logout(const juce::String& token, Callback callback)
+void MusicProdAuthService::logout(const std::string& token, Callback callback)
 {
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("action", "logout");
-    body->setProperty("token", token);
-    post(juce::var(body.get()), std::move(callback));
+    auto body = platform::Json::object();
+    body.set("action", "logout");
+    body.set("token", token);
+    post(body, std::move(callback));
 }
 
-void MusicProdAuthService::activateLicense(const juce::String& token,
-                                           const juce::String& licenseKey,
-                                           const juce::String& deviceId,
-                                           const juce::String& deviceLabel,
-                                           const juce::String& platform,
-                                           const juce::String& pluginVersion,
+void MusicProdAuthService::activateLicense(const std::string& token,
+                                           const std::string& licenseKey,
+                                           const std::string& deviceId,
+                                           const std::string& deviceLabel,
+                                           const std::string& platformName,
+                                           const std::string& pluginVersion,
                                            Callback callback)
 {
     // EXACT wire shape of `activate-license` (vyre-plugin-auth/license.ts).
@@ -89,55 +80,46 @@ void MusicProdAuthService::activateLicense(const juce::String& token,
     // is refused as a structural error rather than treated as a verdict on
     // the customer's key. The key is sent and then dropped - the server binds
     // it to the account, and nothing here persists it.
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("action", "activate-license");
-    body->setProperty("token", token);
-    body->setProperty("license_key", licenseKey);
-    body->setProperty("device_id", deviceId);
-    if (deviceLabel.isNotEmpty())
-        body->setProperty("device_label", deviceLabel);
-    if (platform.isNotEmpty())
-        body->setProperty("platform", platform);
-    if (pluginVersion.isNotEmpty())
-        body->setProperty("plugin_version", pluginVersion);
-    post(juce::var(body.get()), std::move(callback));
+    auto body = platform::Json::object();
+    body.set("action", "activate-license");
+    body.set("token", token);
+    body.set("license_key", licenseKey);
+    body.set("device_id", deviceId);
+    if (!deviceLabel.empty())
+        body.set("device_label", deviceLabel);
+    if (!platformName.empty())
+        body.set("platform", platformName);
+    if (!pluginVersion.empty())
+        body.set("plugin_version", pluginVersion);
+    post(body, std::move(callback));
 }
 
-void MusicProdAuthService::post(const juce::var& body, Callback callback)
+void MusicProdAuthService::post(const platform::Json& body, Callback callback)
 {
-    const auto url = juce::String(authOrigin) + authFunction;
-    const auto payload = juce::JSON::toString(body);
+    platform::HttpRequest request;
+    request.method = "POST";
+    request.url = std::string(authOrigin) + authFunction;
+    request.headers = { { "Content-Type", "application/json" } };
+    request.body = body.dump();
+    request.connectTimeoutMs = connectionTimeoutMs;
+    request.totalTimeoutMs = 2 * connectionTimeoutMs;
 
-    pool_.addJob(
-        [url, payload, callback = std::move(callback)]
+    worker_.post(
+        [request = std::move(request), callback = std::move(callback)]
         {
             HttpReply reply;
-            int statusCode = 0;
-            juce::StringPairArray responseHeaders;
-
-            auto stream = juce::URL(url)
-                .withPOSTData(payload)
-                .createInputStream(juce::URL::InputStreamOptions(
-                        juce::URL::ParameterHandling::inPostData)
-                        .withExtraHeaders("Content-Type: application/json\r\n")
-                        .withConnectionTimeoutMs(connectionTimeoutMs)
-                        .withResponseHeaders(&responseHeaders)
-                        .withStatusCode(&statusCode)
-                        .withNumRedirectsToFollow(5)
-                        .withHttpRequestCmd("POST"));
-
-            if (stream != nullptr)
+            const auto response = platform::httpRequest(request);
+            if (response.transportOk)
             {
                 reply.transportOk = true;
-                reply.status = statusCode;
-                reply.body = parseBody(stream->readEntireStreamAsString());
+                reply.status = response.status;
+                reply.body = parseBody(response.body);
             }
 
             if (callback == nullptr)
                 return;
 
-            juce::MessageManager::callAsync(
-                [callback, reply] { callback(reply); });
+            platform::callOnMainThread([callback, reply] { callback(reply); });
         });
 }
 } // namespace chordengine::licensing

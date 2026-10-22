@@ -1,10 +1,13 @@
 #include "LicensingTypes.h"
 
+#include "Platform/Platform.h"
+
 #include <cmath>
+#include <cstdlib>
 
 namespace chordengine::licensing
 {
-juce::String formatTrial(double msRemaining)
+std::string formatTrial(double msRemaining)
 {
     auto totalSec = static_cast<int>(std::llround(std::ceil(msRemaining / 1000.0)));
     if (totalSec < 0)
@@ -15,51 +18,65 @@ juce::String formatTrial(double msRemaining)
 
     // Reference ceFormatTrial(): minutes and seconds only, exactly two
     // digits per component.
-    return juce::String(minutes).paddedLeft('0', 2) + ":" + juce::String(seconds).paddedLeft('0', 2);
+    return text::padLeft(std::to_string(minutes), 2, '0') + ":" + text::padLeft(std::to_string(seconds), 2, '0');
 }
 
-juce::String uiText(const juce::var& value, const juce::String& fallback)
+std::string uiText(const std::string& value, const std::string& fallback)
 {
-    if (value.isVoid() || value.isUndefined())
+    if (value.empty() || value == "undefined" || value == "null" || value == "NaN")
         return fallback;
 
-    const auto text = value.toString();
-    if (text.isEmpty() || text == "undefined" || text == "null" || text == "NaN")
-        return fallback;
+    return value;
+}
 
-    return text;
+std::string varText(const platform::Json& value)
+{
+    if (value.isBool())
+        return value.asBool() ? "1" : "0";
+    if (value.isString() || value.isNumber())
+        return value.asString();
+    return {};
+}
+
+double varNumber(const platform::Json& value)
+{
+    if (value.isNumber() || value.isBool())
+        return value.asDouble();
+    if (value.isString())
+        return std::strtod(value.stringRef().c_str(), nullptr);
+    return 0.0;
 }
 
 // -------------------------------------------------- the device identity
-juce::String newDeviceId()
+std::string newDeviceId()
 {
     // 128 bits of system entropy, lowercase hex - the shape the backend
-    // accepts (16..128 characters of [A-Za-z0-9._:-]). juce::Uuid draws from
-    // the platform's secure random source, and the value is stored only as a
-    // SHA-256 hash server-side.
-    const auto uuid = juce::Uuid().toString();
-    return uuid.retainCharacters("0123456789abcdefABCDEF").toLowerCase();
+    // accepts (16..128 characters of [A-Za-z0-9._:-]). It is drawn from the
+    // operating system's secure random source, and the value is stored only
+    // as a SHA-256 hash server-side.
+    return platform::randomHex(16);
 }
 
-juce::String normalizeDeviceId(const juce::String& deviceId)
+std::string normalizeDeviceId(const std::string& deviceId)
 {
-    return deviceId.trim().toLowerCase();
+    return text::toLower(text::trim(deviceId));
 }
 
-bool isDeviceIdFormat(const juce::String& deviceId) noexcept
+bool isDeviceIdFormat(const std::string& deviceId) noexcept
 {
     const auto value = normalizeDeviceId(deviceId);
-    if (value.length() < deviceIdMinLength || value.length() > deviceIdMaxLength)
+    if (value.size() < static_cast<std::size_t>(deviceIdMinLength)
+        || value.size() > static_cast<std::size_t>(deviceIdMaxLength))
         return false;
 
     // Same rule as the backend: a printable token with no whitespace. Its
     // exact shape belongs to the plugin; the LENGTH is what matters, because
     // a short id would collide across computers.
-    return value.containsOnly("abcdefghijklmnopqrstuvwxyz0123456789._:-");
+    return text::containsOnly(value, "abcdefghijklmnopqrstuvwxyz0123456789._:-");
 }
 
 // ------------------------------------------------------- derived lines
-juce::String trialStatusText(const Snapshot& snapshot)
+std::string trialStatusText(const Snapshot& snapshot)
 {
     if (snapshot.licensed)
     {
@@ -84,21 +101,21 @@ std::uint32_t trialStatusColour(const Snapshot& snapshot) noexcept
     return colourTrialActive;
 }
 
-juce::String deviceUsageText(const Snapshot& snapshot)
+std::string deviceUsageText(const Snapshot& snapshot)
 {
     const auto& cached = snapshot.cached;
     if (cached.devicesUsed <= 0 && !cached.licenseAccountActive && !cached.licenseEntitles)
         return {};
 
     const auto limit = cached.deviceLimit > 0 ? cached.deviceLimit : deviceActivationLimit;
-    return juce::String(cached.devicesUsed) + " of " + juce::String(limit) + " computers";
+    return std::to_string(cached.devicesUsed) + " of " + std::to_string(limit) + " computers";
 }
 
-juce::String licenseLineText(const Snapshot& snapshot)
+std::string licenseLineText(const Snapshot& snapshot)
 {
     const auto& cached = snapshot.cached;
     const auto slots = deviceUsageText(snapshot);
-    const auto slotsText = slots.isEmpty() ? juce::String() : " (" + slots + ")";
+    const auto slotsText = slots.empty() ? std::string() : " (" + slots + ")";
 
     if (snapshot.licensed)
     {
@@ -128,14 +145,14 @@ juce::String licenseLineText(const Snapshot& snapshot)
     return "Not active - Music-Prod+ unlocks full access";
 }
 
-juce::String userLineText(const Snapshot& snapshot)
+std::string userLineText(const Snapshot& snapshot)
 {
     if (isSignedIn(snapshot))
         return "User  " + uiText(snapshot.user, "Signed in");
     return "User  Not signed in";
 }
 
-juce::String plusLineText(const Snapshot& snapshot)
+std::string plusLineText(const Snapshot& snapshot)
 {
     // The Plus line is the ACCOUNT's Music-Prod+ membership, which the
     // backend deliberately keeps product-agnostic. A licence holder with no
@@ -149,26 +166,26 @@ std::uint32_t plusLineColour(const Snapshot& snapshot) noexcept
     return snapshot.cached.subscribed ? colourPlusActive : colourPlusInactive;
 }
 
-juce::String activationButtonText(const Snapshot& snapshot)
+std::string activationButtonText(const Snapshot& snapshot)
 {
     return snapshot.activationPending ? "ACTIVATING..." : "ACTIVATE";
 }
 
-juce::String signButtonText(const Snapshot& snapshot)
+std::string signButtonText(const Snapshot& snapshot)
 {
     return snapshot.polling ? "CANCEL LINK" : "SIGN IN";
 }
 
-juce::String latestVersionText(const Snapshot& snapshot)
+std::string latestVersionText(const Snapshot& snapshot)
 {
     const auto version = uiText(snapshot.latestVersion, {});
-    return "Latest version  " + (version.isEmpty() ? juce::String("-") : version);
+    return "Latest version  " + (version.empty() ? std::string("-") : version);
 }
 
-juce::String updateStatusText(const Snapshot& snapshot)
+std::string updateStatusText(const Snapshot& snapshot)
 {
     const auto status = uiText(snapshot.updateStatus, {});
-    return status.isEmpty() ? juce::String("Status  -") : "Status  " + status;
+    return status.empty() ? std::string("Status  -") : "Status  " + status;
 }
 
 std::uint32_t updateStatusColour(const Snapshot& snapshot) noexcept
@@ -178,21 +195,21 @@ std::uint32_t updateStatusColour(const Snapshot& snapshot) noexcept
         case UpdateState::checking: return 0xff8a93a0;
         case UpdateState::failed: return colourTrialExpired;
         case UpdateState::checked:
-            return snapshot.latestVersion.isEmpty() ? colourUpdateWarning : colourPlusActive;
+            return snapshot.latestVersion.empty() ? colourUpdateWarning : colourPlusActive;
         case UpdateState::idle:
         default: return 0xff8a93a0;
     }
 }
 
-juce::String expiryModalBody(const Snapshot& snapshot)
+std::string expiryModalBody(const Snapshot& snapshot)
 {
-    auto body = juce::String("Your 30-minute ChordEngine trial has ended.");
+    auto body = std::string("Your 30-minute ChordEngine trial has ended.");
     if (isSignedIn(snapshot))
-        body << " Music-Prod+ unlocks unlimited access, or activate your ChordEngine"
+        body += " Music-Prod+ unlocks unlimited access, or activate your ChordEngine"
                 " licence key on the INFO page. Open Music-Prod Studio or "
                 "music-prod.com to upgrade.";
     else
-        body << " Open Music-Prod Studio to sign in or to activate a ChordEngine licence"
+        body += " Open Music-Prod Studio to sign in or to activate a ChordEngine licence"
                 " key, or upgrade to Music-Prod+ for unlimited access.";
     return body;
 }

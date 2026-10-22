@@ -1,6 +1,9 @@
 #pragma once
 
-#include <juce_core/juce_core.h>
+#include "Platform/Json.h"
+#include "Platform/Text.h"
+
+#include <string>
 
 #include <cstdint>
 #include <string_view>
@@ -81,8 +84,8 @@ inline constexpr const char* productVersion = CHORDENGINE_PRODUCT_VERSION;
 inline constexpr const char* productVersion = "0.0.0";
 #endif
 
-#if defined(JucePlugin_VersionString) && defined(CHORDENGINE_PRODUCT_VERSION)
-static_assert(std::string_view(JucePlugin_VersionString)
+#if defined(CHORDENGINE_PLUGIN_VERSION_STRING) && defined(CHORDENGINE_PRODUCT_VERSION)
+static_assert(std::string_view(CHORDENGINE_PLUGIN_VERSION_STRING)
                   == std::string_view(CHORDENGINE_PRODUCT_VERSION),
               "the licensing telemetry version must be the compiled plug-in version");
 #endif
@@ -161,7 +164,7 @@ struct CachedEntitlement
     bool licenseEntitles = false;      // ...and/or THIS device holds a slot
     bool licenseAccountActive = false; // the account holds an active licence
     bool licenseDeviceActive = false;  // THIS computer holds one of its slots
-    juce::String licenseStatus = licenseStatusNone; // none|active|revoked|expired
+    std::string licenseStatus = licenseStatusNone; // none|active|revoked|expired
     int devicesUsed = 0;               // licence slots in use
     int deviceLimit = deviceActivationLimit;
 };
@@ -171,21 +174,21 @@ struct Snapshot
 {
     Phase phase = Phase::signedOut;
     bool hasToken = false;          // the opaque bearer token is never exposed
-    juce::String user;              // server display name ("" = unknown)
+    std::string user;              // server display name ("" = unknown)
     CachedEntitlement cached;       // last VERIFIED server answer
     std::int64_t verifiedAtMs = 0;  // ms of that answer (0 = never verified)
     bool licensed = false;          // the gate the audio path reads
     bool polling = false;           // a device-code link is in flight
-    juce::String userCode;          // public pairing code from the server
-    juce::String verificationUrl;   // server-returned approval URL to open
-    juce::String message;           // last action result, shown on the INFO page
+    std::string userCode;          // public pairing code from the server
+    std::string verificationUrl;   // server-returned approval URL to open
+    std::string message;           // last action result, shown on the INFO page
     bool activationPending = false; // a licence-key activation is in flight
     double trialMs = trialTotalMs;  // remaining trial budget
     bool trialStarted = false;      // the clock runs only after the first chord
     bool trialExpired = false;
     UpdateState updateState = UpdateState::idle;
-    juce::String latestVersion;     // "" renders as "-" (reference behaviour)
-    juce::String updateStatus;      // "" renders as "-"
+    std::string latestVersion;     // "" renders as "-" (reference behaviour)
+    std::string updateStatus;      // "" renders as "-"
 };
 
 // The single definition of "signed in": a token the server has not rejected.
@@ -239,45 +242,53 @@ inline constexpr int deviceIdMinLength = 16;  // DEVICE_ID_MIN_LENGTH
 inline constexpr int deviceIdMaxLength = 128; // DEVICE_ID_MAX_LENGTH
 
 // A fresh 128-bit device id (32 lowercase hex characters).
-juce::String newDeviceId();
+std::string newDeviceId();
 
 // The backend's format rule (pluginLicenseDevices.ts isDeviceIdFormat):
 // 16..128 characters, no whitespace. Normalisation trims and lowercases,
 // because case and surrounding whitespace are not identity.
-bool isDeviceIdFormat(const juce::String& deviceId) noexcept;
-juce::String normalizeDeviceId(const juce::String& deviceId);
+bool isDeviceIdFormat(const std::string& deviceId) noexcept;
+std::string normalizeDeviceId(const std::string& deviceId);
 
 // MM:SS display - the reference's ceFormatTrial(), including its
 // Math.round(Math.ceil(ms / 1000)) rounding and its two-digit padding.
-juce::String formatTrial(double msRemaining);
+std::string formatTrial(double msRemaining);
 
 // The reference's ceUiText(): never let undefined/null/NaN reach a label.
-juce::String uiText(const juce::var& value, const juce::String& fallback);
+std::string uiText(const std::string& value, const std::string& fallback);
+
+// What the 0.5 build's variant type produced as text for a JSON value: text as is, a
+// boolean as "1"/"0", a number in decimal, anything else "". The licensing
+// contract was written against those conversions, so they are kept exactly.
+std::string varText(const platform::Json& value);
+// That variant type's numeric conversion: numbers, booleans (1/0) and the leading
+// number of a string; anything else 0.
+double varNumber(const platform::Json& value);
 
 // ---- derived INFO-page lines (reference ceLicenseLine / refreshers) ----
 
-juce::String trialStatusText(const Snapshot& snapshot);
+std::string trialStatusText(const Snapshot& snapshot);
 std::uint32_t trialStatusColour(const Snapshot& snapshot) noexcept;
 
-juce::String licenseLineText(const Snapshot& snapshot);
-juce::String userLineText(const Snapshot& snapshot);
-juce::String plusLineText(const Snapshot& snapshot);
+std::string licenseLineText(const Snapshot& snapshot);
+std::string userLineText(const Snapshot& snapshot);
+std::string plusLineText(const Snapshot& snapshot);
 std::uint32_t plusLineColour(const Snapshot& snapshot) noexcept;
 
 // The licence route's slot count ("2 of 3 computers"), or "" when no
 // licence route is known. Never a policy value of its own: it renders the
 // server's devices_used / device_limit.
-juce::String deviceUsageText(const Snapshot& snapshot);
+std::string deviceUsageText(const Snapshot& snapshot);
 
 // The licence-key control's button label: ACTIVATE, or the in-flight state.
-juce::String activationButtonText(const Snapshot& snapshot);
+std::string activationButtonText(const Snapshot& snapshot);
 
-juce::String signButtonText(const Snapshot& snapshot);
-juce::String latestVersionText(const Snapshot& snapshot);
-juce::String updateStatusText(const Snapshot& snapshot);
+std::string signButtonText(const Snapshot& snapshot);
+std::string latestVersionText(const Snapshot& snapshot);
+std::string updateStatusText(const Snapshot& snapshot);
 std::uint32_t updateStatusColour(const Snapshot& snapshot) noexcept;
 
 // Reference expiry-modal body (ceRefreshTrialUI).
-juce::String expiryModalBody(const Snapshot& snapshot);
+std::string expiryModalBody(const Snapshot& snapshot);
 inline constexpr const char* expiryModalTitle = "ACCESS EXPIRED";
 } // namespace chordengine::licensing

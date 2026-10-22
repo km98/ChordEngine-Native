@@ -16,12 +16,11 @@
 #include "Licensing/LicensingModel.h"
 #include "Licensing/LicensingServices.h"
 #include "Licensing/LicensingTypes.h"
-#include "PluginEditor.h"
-#include "PluginProcessor.h"
+#include "MidiTestSupport.h"
+#include "Platform/Text.h"
 #include "Updates/UpdateTransport.h"
 #include "Updates/UpdateTypes.h"
 
-#include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
 #include <cstdlib>
@@ -30,23 +29,18 @@
 #include <string>
 #include <vector>
 
-namespace juce
-{
-void juce_VerifyPlugin();
-void juce_VerifyPlugin() {}
-}
 
 namespace
 {
 int casesPassed = 0;
 
-[[noreturn]] void fail(const juce::String& message)
+[[noreturn]] void fail(const std::string& message)
 {
     std::cerr << "FAIL: " << message << '\n';
     std::exit(EXIT_FAILURE);
 }
 
-void require(bool condition, const juce::String& message)
+void require(bool condition, const std::string& message)
 {
     if (!condition)
         fail(message);
@@ -70,8 +64,8 @@ using chordengine::licensing::Snapshot;
 class MockAuthService final : public chordengine::licensing::AuthService
 {
 public:
-    void start(const juce::String& deviceName, const juce::String& pluginVersion,
-               const juce::String& product, const juce::String& deviceId,
+    void start(const std::string& deviceName, const std::string& pluginVersion,
+               const std::string& product, const std::string& deviceId,
                Callback callback) override
     {
         ++startCalls;
@@ -82,30 +76,30 @@ public:
         pendingStart = std::move(callback);
     }
 
-    void poll(const juce::String& deviceCode, Callback callback) override
+    void poll(const std::string& deviceCode, Callback callback) override
     {
         ++pollCalls;
         lastPolledCode = deviceCode;
         pendingPoll = std::move(callback);
     }
 
-    void entitlements(const juce::String& token, Callback callback) override
+    void entitlements(const std::string& token, Callback callback) override
     {
         ++entitlementCalls;
         lastToken = token;
         pendingEntitlements = std::move(callback);
     }
 
-    void logout(const juce::String& token, Callback callback) override
+    void logout(const std::string& token, Callback callback) override
     {
         ++logoutCalls;
         lastToken = token;
         pendingLogout = std::move(callback);
     }
 
-    void activateLicense(const juce::String& token, const juce::String& licenseKey,
-                        const juce::String& deviceId, const juce::String& deviceLabel,
-                        const juce::String& platform, const juce::String& pluginVersion,
+    void activateLicense(const std::string& token, const std::string& licenseKey,
+                        const std::string& deviceId, const std::string& deviceLabel,
+                        const std::string& platform, const std::string& pluginVersion,
                         Callback callback) override
     {
         ++activateCalls;
@@ -123,17 +117,17 @@ public:
     int entitlementCalls = 0;
     int logoutCalls = 0;
     int activateCalls = 0;
-    juce::String lastDeviceName;
-    juce::String lastPluginVersion;
-    juce::String lastProduct;
-    juce::String lastDeviceId;
-    juce::String lastPolledCode;
-    juce::String lastToken;
-    juce::String lastLicenseKey;
-    juce::String lastActivateDeviceId;
-    juce::String lastDeviceLabel;
-    juce::String lastPlatform;
-    juce::String lastActivatePluginVersion;
+    std::string lastDeviceName;
+    std::string lastPluginVersion;
+    std::string lastProduct;
+    std::string lastDeviceId;
+    std::string lastPolledCode;
+    std::string lastToken;
+    std::string lastLicenseKey;
+    std::string lastActivateDeviceId;
+    std::string lastDeviceLabel;
+    std::string lastPlatform;
+    std::string lastActivatePluginVersion;
     Callback pendingStart;
     Callback pendingPoll;
     Callback pendingEntitlements;
@@ -161,12 +155,12 @@ public:
 class StubUpdateTransport final : public chordengine::updates::UpdateTransport
 {
 public:
-    StubUpdateTransport(int httpStatus, juce::String responseBody)
+    StubUpdateTransport(int httpStatus, std::string responseBody)
         : status(httpStatus), body(std::move(responseBody))
     {
     }
 
-    chordengine::updates::TransportReply get(const juce::String& url) override
+    chordengine::updates::TransportReply get(const std::string& url) override
     {
         ++calls;
         lastUrl = url;
@@ -179,36 +173,34 @@ public:
     }
 
     int status = 200;
-    juce::String body;
+    std::string body;
     int calls = 0;
-    juce::String lastUrl;
+    std::string lastUrl;
 };
 
 // --------------------------------------------------------------- helpers
-juce::File temporaryStorageDirectory(const juce::String& name)
+std::filesystem::path temporaryStorageDirectory(const std::string& name)
 {
-    auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                   .getChildFile("ChordEngine-FunctionalTests")
-                   .getChildFile(name);
-    dir.deleteRecursively();
-    dir.createDirectory();
-    return dir;
+    return chordengine::test::freshDirectory("ChordEngine-FunctionalTests", name);
 }
 
 // LicensingBoundary owns the auth FILE (the editor appends auth.json to its
 // storage directory); tests point it at a file inside a temp directory.
-juce::File temporaryAuthFile(const juce::String& name)
+std::filesystem::path temporaryAuthFile(const std::string& name)
 {
-    return temporaryStorageDirectory(name).getChildFile("auth.json");
+    return temporaryStorageDirectory(name) / "auth.json";
 }
 
-void runBlock(ChordEngineAudioProcessor& processor, juce::AudioBuffer<float>& audio,
-              juce::MidiBuffer& midi)
+using chordengine::test::MidiBuffer;
+using chordengine::test::MidiMessage;
+using AudioBuffer = chordengine::test::AudioBuffer;
+
+void runBlock(ChordEngineAudioProcessor& processor, AudioBuffer& audio, MidiBuffer& midi)
 {
-    processor.processBlock(audio, midi);
+    chordengine::test::processBlock(processor, audio, midi);
 }
 
-std::vector<int> generatedNoteOnPitches(const juce::MidiBuffer& buffer)
+std::vector<int> generatedNoteOnPitches(const MidiBuffer& buffer)
 {
     std::vector<int> pitches;
     for (const auto metadata : buffer)
@@ -217,7 +209,7 @@ std::vector<int> generatedNoteOnPitches(const juce::MidiBuffer& buffer)
     return pitches;
 }
 
-std::vector<int> generatedNoteOnVelocities(const juce::MidiBuffer& buffer)
+std::vector<int> generatedNoteOnVelocities(const MidiBuffer& buffer)
 {
     std::vector<int> velocities;
     for (const auto metadata : buffer)
@@ -226,102 +218,37 @@ std::vector<int> generatedNoteOnVelocities(const juce::MidiBuffer& buffer)
     return velocities;
 }
 
-juce::var jsonObject(const std::vector<std::pair<const char*, juce::var>>& fields)
+chordengine::platform::Json jsonObject(const std::vector<std::pair<const char*, chordengine::platform::Json>>& fields)
 {
-    juce::DynamicObject::Ptr object = new juce::DynamicObject();
+    auto object = chordengine::platform::Json::object();
     for (const auto& field : fields)
-        object->setProperty(field.first, field.second);
-    return juce::var(object.get());
+        object.set(field.first, field.second);
+    return object;
 }
 
 void pumpMessages(int milliseconds)
 {
-    if (auto* manager = juce::MessageManager::getInstanceWithoutCreating())
-        manager->runDispatchLoopUntil(milliseconds);
-}
-
-juce::Component* findComponentWithId(juce::Component& parent, const juce::String& componentId)
-{
-    if (parent.getComponentID() == componentId)
-        return &parent;
-
-    for (auto* child : parent.getChildren())
-        if (auto* found = findComponentWithId(*child, componentId))
-            return found;
-
-    return nullptr;
-}
-
-juce::Button* findButton(juce::Component& parent, const juce::String& componentId)
-{
-    return dynamic_cast<juce::Button*>(findComponentWithId(parent, componentId));
-}
-
-void clickButton(juce::Component& parent, const juce::String& componentId,
-                 const juce::String& context)
-{
-    auto* button = findButton(parent, componentId);
-    require(button != nullptr, context + ": control '" + componentId + "' must exist");
-    require(button->isEnabled(), context + ": control '" + componentId + "' must be enabled");
-    button->triggerClick();
-    pumpMessages(30);
-}
-
-juce::String labelText(juce::Component& parent, const juce::String& componentId,
-                       const juce::String& context)
-{
-    auto* label = dynamic_cast<juce::Label*>(findComponentWithId(parent, componentId));
-    require(label != nullptr, context + ": label '" + componentId + "' must exist");
-    return label->getText();
-}
-
-// Builds the SAME MouseEvent the desktop delivers, so interactive controls can
-// be exercised through their real mouse handlers instead of a setValue
-// shortcut. `localPosition` is relative to `component`, exactly as a real
-// event's position is.
-juce::MouseEvent makeMouseEvent(juce::Component& component, juce::Point<float> localPosition,
-                                bool dragged)
-{
-    const auto source = juce::Desktop::getInstance().getMainMouseSource();
-    const auto now = juce::Time::getCurrentTime();
-    return { source, localPosition, juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-             &component, &component, now, localPosition, now, 1, dragged };
-}
-
-// Presses at the position of `fromValue` and drags to the position of
-// `toValue` through the slider's own mouse handlers - a real click-and-drag.
-void dragSlider(juce::Slider& slider, double fromValue, double toValue)
-{
-    const auto localY = static_cast<float>(slider.getHeight()) * 0.5f;
-    const juce::Point<float> from { slider.getPositionOfValue(fromValue), localY };
-    const juce::Point<float> to { slider.getPositionOfValue(toValue), localY };
-
-    slider.mouseDown(makeMouseEvent(slider, from, false));
-    slider.mouseDrag(makeMouseEvent(slider, to, true));
-    slider.mouseUp(makeMouseEvent(slider, to, true));
-    pumpMessages(10);
+    chordengine::platform::runMainLoopFor(milliseconds);
 }
 
 // Reads a source file relative to the project root.
-juce::String readSourceFile(const juce::String& relativePath)
+std::string readSourceFile(const std::string& relativePath)
 {
-    const juce::File file(juce::String(CHORDENGINE_SOURCE_DIR) + "/" + relativePath);
-    require(file.existsAsFile(), "source file must exist: " + relativePath);
-    return file.loadFileAsString();
+    const std::filesystem::path file(std::string(CHORDENGINE_SOURCE_DIR) + "/" + relativePath);
+    require(std::filesystem::exists(file), "source file must exist: " + relativePath);
+    return chordengine::test::readText(file);
 }
 
 // Every token that would prove GUI work or licensing work happening where it
 // must never happen.
 const std::array<const char*, 12> realtimeForbiddenTokens {{
-    "juce::URL", "LicensingBoundary", "MusicProdAuthService", "AuthService",
-    "callAsync", "MessageManager", "createEditor", "AudioProcessorEditor",
-    "repaint", "setBounds", "getEditor", "ThreadPool" }};
+    "httpRequest", "LicensingBoundary", "MusicProdAuthService", "AuthService",
+    "callOnMainThread", "WorkerQueue", "createEditorView", "NSView",
+    "dispatch_", "writeFile", "readFile", "std::thread" }};
 }
 
 int main()
 {
-    const juce::ScopedJuceInitialiser_GUI guiInitialiser;
-    juce::ignoreUnused(guiInitialiser);
 
     // =================================================================
     // 1. Fixed velocity updates Core state.
@@ -338,10 +265,10 @@ int main()
         for (const int velocity : { 1, 64, 100, 127 })
         {
             require(processor.setFixedVelocity(velocity),
-                    "fixed velocity: " + juce::String(velocity) + " must be accepted");
+                    "fixed velocity: " + std::to_string(velocity) + " must be accepted");
             require(processor.configurationSnapshot().fixedVelocity == velocity,
                     "fixed velocity: Core state must read back "
-                        + juce::String(velocity));
+                        + std::to_string(velocity));
         }
 
         require(!processor.setFixedVelocity(0), "fixed velocity: 0 is out of range");
@@ -362,21 +289,21 @@ int main()
             require(processor.setVelocityMode(chordengine::core::VelocityMode::fixed),
                     "fixed velocity MIDI: fixed mode is selectable");
             require(processor.setFixedVelocity(velocity),
-                    "fixed velocity MIDI: set " + juce::String(velocity));
+                    "fixed velocity MIDI: set " + std::to_string(velocity));
 
-            juce::AudioBuffer<float> audio(0, 512);
-            juce::MidiBuffer midi;
-            midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(99)), 0);
+            AudioBuffer audio(0, 512);
+            MidiBuffer midi;
+            midi.addEvent(MidiMessage::noteOn(1, 60, static_cast<std::uint8_t>(99)), 0);
             runBlock(processor, audio, midi);
 
             const auto velocities = generatedNoteOnVelocities(midi);
             require(velocities.size() > 0,
                     "fixed velocity MIDI: a chord must be generated at "
-                        + juce::String(velocity));
+                        + std::to_string(velocity));
             for (const auto generated : velocities)
                 require(generated == velocity,
                         "fixed velocity MIDI: every generated note must carry "
-                            + juce::String(velocity) + ", got " + juce::String(generated));
+                            + std::to_string(velocity) + ", got " + std::to_string(generated));
         }
         casePassed();
     }
@@ -393,9 +320,9 @@ int main()
         {
             require(processor.setVelocityMode(static_cast<chordengine::core::VelocityMode>(mode)),
                     "velocity modes: mode is selectable");
-            juce::AudioBuffer<float> audio(0, 512);
-            juce::MidiBuffer midi;
-            midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(inputVelocity)), 0);
+            AudioBuffer audio(0, 512);
+            MidiBuffer midi;
+            midi.addEvent(MidiMessage::noteOn(1, 60, static_cast<std::uint8_t>(inputVelocity)), 0);
             runBlock(processor, audio, midi);
             return generatedNoteOnVelocities(midi);
         };
@@ -443,17 +370,17 @@ int main()
                 "recorder cancel: a cancelled arm stores no take");
 
         require(processor.armRecorder(), "recorder stop: arming succeeds");
-        juce::AudioBuffer<float> audio(0, 512);
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+        AudioBuffer audio(0, 512);
+        MidiBuffer midi;
+        midi.addEvent(MidiMessage::noteOn(1, 60, static_cast<std::uint8_t>(100)), 0);
         runBlock(processor, audio, midi);
         require(processor.recorderState() == 2,
                 "recorder stop: the first generated note-on starts RECORDING");
 
-        juce::MidiBuffer stopBlock;
-        juce::AudioBuffer<float> stopAudio(0, 512);
-        juce::MidiBuffer release;
-        release.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        MidiBuffer stopBlock;
+        AudioBuffer stopAudio(0, 512);
+        MidiBuffer release;
+        release.addEvent(MidiMessage::noteOff(1, 60), 0);
         runBlock(processor, stopAudio, release);
         require(processor.stopRecorder(), "recorder stop: stopping stores the take");
         require(processor.recorderState() == 0, "recorder stop: state returns to IDLE");
@@ -555,8 +482,8 @@ int main()
         verified.subscribed = true;
         verified.subscriptionEntitles = true;
         LicensingModel licensed;
-        licensed.loadToken("token", "Martin", verified, juce::Time::currentTimeMillis());
-        licensed.applyCachedEntitlement(juce::Time::currentTimeMillis());
+        licensed.loadToken("token", "Martin", verified, chordengine::platform::currentTimeMillis());
+        licensed.applyCachedEntitlement(chordengine::platform::currentTimeMillis());
         require(licensed.snapshot().licensed, "trial clock: a verified token licenses the session");
         licensed.notePlaybackStarted();
         for (int tick = 0; tick < 20000; ++tick)
@@ -608,7 +535,7 @@ int main()
         require(!shippedResult.available,
                 "update state: the shipped service reports no plugin-facing version");
         require(shippedResult.status
-                    == juce::String(chordengine::licensing::updateStatusUnavailable),
+                    == std::string(chordengine::licensing::updateStatusUnavailable),
                 "update state: the shipped status matches the reference exactly");
         casePassed();
     }
@@ -631,7 +558,7 @@ int main()
         require(auth.startCalls == 1, "sign in: one device-code start is requested");
         require(auth.lastDeviceName == "ChordEngine",
                 "sign in: the reference device name is reported");
-        require(auth.lastPluginVersion == JucePlugin_VersionString,
+        require(auth.lastPluginVersion == CHORDENGINE_PLUGIN_VERSION_STRING,
                 "sign in: the version of THIS build is reported as plugin_version, "
                 "never the reference product's 0.4.0");
         require(auth.lastProduct == "chordengine",
@@ -657,7 +584,7 @@ int main()
         require(boundary.snapshot().userCode == "ABCD-EFGH",
                 "sign in: the public pairing code is available for display");
 
-        juce::String verificationUrl;
+        std::string verificationUrl;
         require(boundary.consumeVerificationUrl(verificationUrl),
                 "sign in: the approval URL is published once");
         require(verificationUrl == "https://music-prod.com/link?code=ABCD-EFGH",
@@ -706,7 +633,7 @@ int main()
                 "sign in: a licensed session is never gated");
 
         // A 401 clears the token AND the remembered entitlement.
-        require(authFile.existsAsFile(),
+        require(std::filesystem::exists(authFile),
                 "sign in: the token is persisted next to the other plugin state");
 
         auth.pendingEntitlements(HttpReply { 401, {}, true });
@@ -787,10 +714,10 @@ int main()
         ChordEngineAudioProcessor processor;
         processor.prepareToPlay(44100.0, 512);
 
-        juce::AudioBuffer<float> audio(0, 512);
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
-        processor.processBlock(audio, midi);
+        AudioBuffer audio(0, 512);
+        MidiBuffer midi;
+        midi.addEvent(MidiMessage::noteOn(1, 60, static_cast<std::uint8_t>(100)), 0);
+        runBlock(processor, audio, midi);
         require(generatedNoteOnPitches(midi).size() > 0,
                 "gate: an open gate generates the chord");
 
@@ -799,10 +726,10 @@ int main()
 
         // A trigger that was never played while the gate was open, so the
         // visual state below cannot be inherited from the earlier chord.
-        juce::AudioBuffer<float> gatedAudio(0, 512);
-        juce::MidiBuffer gatedMidi;
-        gatedMidi.addEvent(juce::MidiMessage::noteOn(1, 72, static_cast<juce::uint8>(100)), 0);
-        processor.processBlock(gatedAudio, gatedMidi);
+        AudioBuffer gatedAudio(0, 512);
+        MidiBuffer gatedMidi;
+        gatedMidi.addEvent(MidiMessage::noteOn(1, 72, static_cast<std::uint8_t>(100)), 0);
+        runBlock(processor, gatedAudio, gatedMidi);
         require(gatedMidi.isEmpty(),
                 "gate: a closed gate generates no chord AND swallows the trigger");
         require(!processor.isAnyTriggerNoteActive(72)
@@ -810,10 +737,10 @@ int main()
                 "gate: a closed gate produces no visual state either");
 
         processor.setLicensingGateOpen(true);
-        juce::AudioBuffer<float> resumeAudio(0, 512);
-        juce::MidiBuffer resumeMidi;
-        resumeMidi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
-        processor.processBlock(resumeAudio, resumeMidi);
+        AudioBuffer resumeAudio(0, 512);
+        MidiBuffer resumeMidi;
+        resumeMidi.addEvent(MidiMessage::noteOn(1, 60, static_cast<std::uint8_t>(100)), 0);
+        runBlock(processor, resumeAudio, resumeMidi);
         require(generatedNoteOnPitches(resumeMidi).size() > 0,
                 "gate: reopening the gate restores chord generation");
         casePassed();
@@ -828,10 +755,10 @@ int main()
         require(!processor.consumePlaybackActivity(),
                 "trial start: a silent plugin reports no playback");
 
-        juce::AudioBuffer<float> audio(0, 512);
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
-        processor.processBlock(audio, midi);
+        AudioBuffer audio(0, 512);
+        MidiBuffer midi;
+        midi.addEvent(MidiMessage::noteOn(1, 60, static_cast<std::uint8_t>(100)), 0);
+        runBlock(processor, audio, midi);
 
         require(processor.consumePlaybackActivity(),
                 "trial start: a generated chord reports playback activity");
@@ -841,1023 +768,56 @@ int main()
     }
 
     // =================================================================
-    // 13. Real bound editor callbacks update real state.
-    // =================================================================
-    {
-        auto processor = std::make_unique<ChordEngineAudioProcessor>();
-        processor->prepareToPlay(44100.0, 512);
-
-        // The update transport is injected: the INFO update rows are driven by
-        // the REAL client, but no test ever touches the live service. The
-        // scripted body is the verbatim live `chordengine` answer.
-        auto updateTransport = std::make_unique<StubUpdateTransport>(200,
-            R"({"success":true,"data":{"product":"chordengine","currentVersion":"0.4.0","latestVersion":null,"updateAvailable":false,"decision":"upToDate","mustUpdate":false,"reason":"no published release exists for this product yet","mandatory":false,"minimumSupportedVersion":null,"releaseNotes":null,"artifacts":[],"channel":"stable","latestBuildNumber":null,"latestReleaseId":null,"publishedAt":null,"status":"noPublishedRelease"}})");
-        auto* updateStub = updateTransport.get();
-        auto editor = std::make_unique<ChordEngineAudioProcessorEditor>(
-            *processor, temporaryStorageDirectory("editor"), std::move(updateTransport));
-
-        // The update check is asynchronous: wait for it to settle before
-        // reading the INFO rows it drives.
-        const auto waitForUpdateCheck = [&editor]
-        {
-            for (int tick = 0; tick < 200 && editor->updateService().isCheckInFlight(); ++tick)
-                pumpMessages(10);
-        };
-
-        // ---- recorder arm / cancel through the real button -------------
-        clickButton(*editor, "recorder-action", "editor buttons");
-        require(processor->recorderState() == 1,
-                "editor buttons: RECORD ARM arms the recorder");
-        require(findButton(*editor, "recorder-action")->getButtonText() == "CANCEL",
-                "editor buttons: the armed state relabels the control");
-        clickButton(*editor, "recorder-action", "editor buttons");
-        require(processor->recorderState() == 0,
-                "editor buttons: CANCEL returns the recorder to idle");
-
-        // ---- navigation -----------------------------------------------
-        clickButton(*editor, "info-button", "editor buttons");
-        auto* infoTitle = findComponentWithId(*editor, "info-title");
-        require(infoTitle != nullptr && infoTitle->isVisible(),
-                "editor buttons: INFO shows the INFO page");
-        clickButton(*editor, "chord-button", "editor buttons");
-        require(!infoTitle->isVisible(),
-                "editor buttons: CHORD hides the INFO page");
-
-        // ---- velocity mode + fixed velocity slider ---------------------
-        auto* velocityMode = dynamic_cast<juce::ComboBox*>(
-            findComponentWithId(*editor, "velocity-mode-selector"));
-        require(velocityMode != nullptr, "editor buttons: the velocity mode selector exists");
-        auto* fixedSlider = dynamic_cast<juce::Slider*>(
-            findComponentWithId(*editor, "fixed-velocity-slider"));
-        require(fixedSlider != nullptr, "editor buttons: the fixed velocity slider exists");
-
-        require(!fixedSlider->isEnabled(),
-                "editor buttons: the reference disables fixed velocity in Dynamic mode");
-
-        velocityMode->setSelectedId(3, juce::sendNotificationSync);
-        require(processor->configurationSnapshot().velocityMode
-                    == chordengine::core::VelocityMode::fixed,
-                "editor buttons: selecting Fixed updates Core state");
-        require(fixedSlider->isEnabled(),
-                "editor buttons: the reference enables fixed velocity in Fixed mode");
-
-        fixedSlider->setValue(64.0, juce::sendNotificationSync);
-        require(processor->configurationSnapshot().fixedVelocity == 64,
-                "editor buttons: moving the slider updates Core state");
-        require(labelText(*editor, "fixed-velocity-value", "editor buttons") == "64",
-                "editor buttons: the numeric readout updates live");
-
-        fixedSlider->setValue(1.0, juce::sendNotificationSync);
-        require(processor->configurationSnapshot().fixedVelocity == 1,
-                "editor buttons: the slider works at 1");
-        fixedSlider->setValue(127.0, juce::sendNotificationSync);
-        require(processor->configurationSnapshot().fixedVelocity == 127,
-                "editor buttons: the slider works at 127");
-
-        // ---- transpose bounds -----------------------------------------
-        auto* down = findButton(*editor, "octave-down");
-        auto* up = findButton(*editor, "octave-up");
-        require(down != nullptr && up != nullptr, "editor buttons: the octave steppers exist");
-        clickButton(*editor, "octave-down", "editor buttons");
-        require(processor->configurationSnapshot().transpose.octaveSteps == -1,
-                "editor buttons: minus steps the octave down");
-        clickButton(*editor, "octave-down", "editor buttons");
-        require(processor->configurationSnapshot().transpose.octaveSteps == -2,
-                "editor buttons: the octave steps to the -2 bound");
-        clickButton(*editor, "octave-down", "editor buttons");
-        require(processor->configurationSnapshot().transpose.octaveSteps == -2,
-                "editor buttons: the octave stays at the -2 bound");
-        clickButton(*editor, "octave-up", "editor buttons");
-        clickButton(*editor, "octave-up", "editor buttons");
-        clickButton(*editor, "octave-up", "editor buttons");
-        require(processor->configurationSnapshot().transpose.octaveSteps == 1,
-                "editor buttons: plus steps the octave up one at a time");
-        clickButton(*editor, "octave-up", "editor buttons");
-        require(processor->configurationSnapshot().transpose.octaveSteps == 2,
-                "editor buttons: the octave steps to the +2 bound");
-        clickButton(*editor, "octave-up", "editor buttons");
-        require(processor->configurationSnapshot().transpose.octaveSteps == 2,
-                "editor buttons: the octave stays at the +2 bound");
-
-        // ---- the update rows are the real client's, never placeholders --
-        clickButton(*editor, "info-button", "editor buttons");
-        waitForUpdateCheck();
-        require(labelText(*editor, "info-current-version", "editor buttons")
-                    == "Current version  " + juce::String(JucePlugin_VersionString),
-                "editor buttons: the version row uses the actual build metadata");
-        require(labelText(*editor, "info-latest-version", "editor buttons")
-                    == "Latest version  No published release",
-                "editor buttons: the live no-release answer replaces the placeholder");
-        require(labelText(*editor, "info-update-status", "editor buttons")
-                    == "Status  No published release",
-                "editor buttons: noPublishedRelease is never reported as up to date");
-
-        // CHECK FOR UPDATES is a real button and performs exactly one real check.
-        require(findButton(*editor, "check-updates") != nullptr,
-                "editor buttons: CHECK FOR UPDATES is a real juce::Button");
-        waitForUpdateCheck();
-        const int requestsBeforeClick = updateStub->calls;
-        clickButton(*editor, "check-updates", "editor buttons");
-        waitForUpdateCheck();
-        require(updateStub->calls == requestsBeforeClick + 1,
-                "editor buttons: one click performs exactly one update request");
-        require(updateStub->lastUrl.contains("product=chordengine")
-                    && updateStub->lastUrl.contains("current="
-                                                    + juce::String(JucePlugin_VersionString))
-                    && updateStub->lastUrl.contains("platform="),
-                "editor buttons: the anonymous check carries the product, the build version "
-                "and the platform");
-        require(labelText(*editor, "info-update-status", "editor buttons")
-                    == "Status  No published release",
-                "editor buttons: the INFO status reflects the completed check");
-
-        // ---- the real logo asset and the disabled internal-audio pill --
-        require(labelText(*editor, "internal-audio-sub-label", "editor buttons")
-                    == "MIDI FX - load ChordEngine Instrument for sound",
-                "editor buttons: internal audio states its unavailability");
-
-        // ---- the expiry gate is wired and hidden until it is needed -----
-        auto* gateTitle = dynamic_cast<juce::Label*>(
-            findComponentWithId(*editor, "trial-gate-title"));
-        auto* gateBody = dynamic_cast<juce::Label*>(
-            findComponentWithId(*editor, "trial-gate-body"));
-        require(gateTitle != nullptr && gateBody != nullptr,
-                "editor buttons: the expiry gate surfaces exist");
-        require(!gateTitle->isVisible() && !gateBody->isVisible(),
-                "editor buttons: the expiry gate stays hidden while access is allowed");
-        require(gateTitle->getText() == "ACCESS EXPIRED",
-                "editor buttons: the gate heading matches the reference");
-        require(gateBody->getText().contains("30-minute ChordEngine trial has ended"),
-                "editor buttons: the gate body matches the reference wording");
-        require(gateBody->getText().contains("Music-Prod"),
-                "editor buttons: the gate body tells the user how to restore access");
-
-        require(findButton(*editor, "trial-gate-studio") != nullptr
-                    && findButton(*editor, "trial-gate-sign-in") != nullptr,
-                "editor buttons: the gate carries both real recovery controls");
-
-        editor.reset();
-        processor.reset();
-        casePassed();
-    }
-
-    // =================================================================
     // 14. Realtime-thread and GUI isolation invariants.
     // =================================================================
     {
         const auto processorSource = readSourceFile("Source/PluginProcessor.cpp");
 
-        const auto blockStart = processorSource.indexOf("void ChordEngineAudioProcessor::processBlock");
-        require(blockStart >= 0, "realtime isolation: processBlock must exist");
-        const auto tail = processorSource.substring(blockStart);
-        const auto relativeEnd = tail.indexOf("juce::AudioProcessorEditor* ChordEngineAudioProcessor::createEditor");
-        require(relativeEnd > 0, "realtime isolation: processBlock bounds must be found");
-        const auto processBlockBody = tail.substring(0, relativeEnd);
+        const auto blockStart = processorSource.find("void ChordEngineAudioProcessor::processBlock");
+        require(blockStart != std::string::npos, "realtime isolation: processBlock must exist");
+        const auto tail = processorSource.substr(blockStart);
+        const auto relativeEnd = tail.find("std::string ChordEngineAudioProcessor::getStateInformation");
+        require(relativeEnd != std::string::npos, "realtime isolation: processBlock bounds must be found");
+        const auto processBlockBody = tail.substr(0, relativeEnd);
 
         for (const auto* token : realtimeForbiddenTokens)
-            require(!processBlockBody.contains(token),
-                    juce::String("realtime isolation: processBlock must not reference '")
-                        + token + "'");
+            require(!chordengine::text::contains(processBlockBody, token),
+                    std::string("realtime isolation: processBlock must not reference '") + token + "'");
 
-        // The only GUI interaction in the processor is createEditor().
-        require(processorSource.contains("ChordEngineAudioProcessor::createEditor()"),
-                "realtime isolation: createEditor remains the single GUI entry point");
+        // The processor knows nothing of the editor: the adapters create it.
+        require(!chordengine::text::contains(processorSource, "UI/"),
+                "realtime isolation: the processor includes no editor code");
 
         // The network path lives in the auth service, which hands every
-        // request to a background thread pool.
+        // request to its background worker queue.
         const auto authServiceHeader = readSourceFile("Source/Licensing/MusicProdAuthService.h");
         const auto authServiceSource = readSourceFile("Source/Licensing/MusicProdAuthService.cpp");
-        require(authServiceHeader.contains("juce::ThreadPool"),
-                "realtime isolation: the auth service owns a background thread pool");
-        require(authServiceSource.contains("addJob"),
+        require(chordengine::text::contains(authServiceHeader, "platform::WorkerQueue"),
+                "realtime isolation: the auth service owns a background worker");
+        require(chordengine::text::contains(authServiceSource, "worker_.post"),
                 "realtime isolation: every request is dispatched off the calling thread");
-        require(authServiceSource.contains("MessageManager::callAsync"),
-                "realtime isolation: replies return to the message thread only");
+        require(chordengine::text::contains(authServiceSource, "platform::callOnMainThread"),
+                "realtime isolation: replies return to the main thread only");
 
         // The licensing boundary never performs I/O inline.
         const auto boundarySource = readSourceFile("Source/Licensing/LicensingBoundary.cpp");
-        require(!boundarySource.contains("createInputStream"),
+        require(!chordengine::text::contains(boundarySource, "httpRequest"),
                 "realtime isolation: the boundary performs no HTTP itself");
-        require(!boundarySource.contains("juce::URL"),
-                "realtime isolation: the boundary opens no URL itself");
 
         // No licensing network call anywhere in the audio processor.
-        require(!processorSource.contains("callWithPOST"),
+        require(!chordengine::text::contains(processorSource, "httpRequest"),
                 "realtime isolation: no server call exists in the processor");
-        require(!processorSource.contains("wfpeajmdojcjqyrsnxbk"),
+        require(!chordengine::text::contains(processorSource, "wfpeajmdojcjqyrsnxbk"),
                 "realtime isolation: the processor embeds no auth endpoint");
         casePassed();
     }
 
-    // =================================================================
-    // 15. Fixed velocity is a real mouse-driven control (drag + click).
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        processor.prepareToPlay(44100.0, 512);
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("velocity-drag"));
-        editor.setSize(800, 650);
-        pumpMessages(20);
-
-        auto* slider = dynamic_cast<juce::Slider*>(
-            findComponentWithId(editor, "fixed-velocity-slider"));
-        require(slider != nullptr,
-                "fixed velocity drag: the control must be a real juce::Slider, not a painted graphic");
-        require(slider->getSliderStyle() == juce::Slider::LinearHorizontal,
-                "fixed velocity drag: the reference linear horizontal style is used");
-        require(slider->getMinimum() == 1.0 && slider->getMaximum() == 127.0
-                    && slider->getInterval() == 1.0,
-                "fixed velocity drag: the control spans 1..127 in steps of 1");
-
-        auto* mode = dynamic_cast<juce::ComboBox*>(
-            findComponentWithId(editor, "velocity-mode-selector"));
-        require(mode != nullptr, "fixed velocity drag: the velocity mode selector exists");
-
-        // Dynamic: inert AND visibly inert (the "live-looking but dead" bug).
-        require(!slider->isEnabled(),
-                "fixed velocity drag: the reference disables fixed velocity in Dynamic mode");
-        require(slider->getAlpha() < 1.0f,
-                "fixed velocity drag: an inactive slider is visibly dimmed, never live-looking");
-
-        mode->setSelectedId(3, juce::sendNotificationSync);
-        require(slider->isEnabled(),
-                "fixed velocity drag: the reference enables fixed velocity in Fixed mode");
-        require(slider->getAlpha() == 1.0f,
-                "fixed velocity drag: the live slider is fully opaque");
-
-        // A real press-and-drag through the slider's own mouse handlers - not a
-        // setValue shortcut - must move the control, the Core and the MIDI.
-        const auto generatedVelocities = [&processor]()
-        {
-            juce::AudioBuffer<float> audio(0, 512);
-            juce::MidiBuffer on;
-            on.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(99)), 0);
-            runBlock(processor, audio, on);
-            const auto velocities = generatedNoteOnVelocities(on);
-
-            juce::AudioBuffer<float> releaseAudio(0, 512);
-            juce::MidiBuffer off;
-            off.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
-            runBlock(processor, releaseAudio, off);
-            return velocities;
-        };
-
-        dragSlider(*slider, 100.0, 1.0);
-        require(static_cast<int>(slider->getValue()) == 1,
-                "fixed velocity drag: dragging to the far left reaches 1");
-        require(processor.configurationSnapshot().fixedVelocity == 1,
-                "fixed velocity drag: the Core receives 1");
-        require(labelText(editor, "fixed-velocity-value", "fixed velocity drag") == "1",
-                "fixed velocity drag: the numeric readout follows the drag");
-        for (const auto velocity : generatedVelocities())
-            require(velocity == 1, "fixed velocity drag: generated MIDI carries velocity 1");
-
-        for (const double target : { 64.0, 100.0, 127.0 })
-        {
-            dragSlider(*slider, 1.0, target);
-            const auto reached = static_cast<int>(slider->getValue());
-            require(std::abs(reached - static_cast<int>(target)) <= 1,
-                    "fixed velocity drag: the slider reaches " + juce::String(target)
-                        + " by dragging (got " + juce::String(reached) + ")");
-            require(processor.configurationSnapshot().fixedVelocity == reached,
-                    "fixed velocity drag: the Core receives the dragged value "
-                        + juce::String(reached));
-            require(labelText(editor, "fixed-velocity-value", "fixed velocity drag")
-                        == juce::String(reached),
-                    "fixed velocity drag: the readout shows the dragged value");
-            for (const auto velocity : generatedVelocities())
-                require(velocity == reached,
-                        "fixed velocity drag: generated MIDI matches the dragged value "
-                            + juce::String(reached));
-        }
-
-        // Clicking (press without drag) along the track must also move it.
-        dragSlider(*slider, 127.0, 20.0);
-        require(static_cast<int>(slider->getValue()) < 60,
-                "fixed velocity drag: a single click low on the track moves the value down");
-        require(processor.configurationSnapshot().fixedVelocity
-                    == static_cast<int>(slider->getValue()),
-                "fixed velocity drag: the clicked value reaches the Core");
-        casePassed();
-    }
-
-    // =================================================================
-    // 16. The C2-C7 on-screen keyboard is a real MIDI input surface.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        processor.prepareToPlay(44100.0, 512);
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("piano"));
-        editor.setSize(800, 650);
-        pumpMessages(20);
-
-        auto* piano = findComponentWithId(editor, "piano-display");
-        require(piano != nullptr, "piano: the on-screen keyboard exists");
-        const auto area = editor.getLocalArea(piano, piano->getLocalBounds());
-        require(area.getWidth() > 0 && area.getHeight() > 0, "piano: the keyboard is laid out");
-
-        const auto noteAt = [&editor, &area](float localX, float localY)
-        {
-            return editor.pianoNoteAtEditorPoint({ static_cast<float>(area.getX()) + localX,
-                                                   static_cast<float>(area.getY()) + localY });
-        };
-
-        const float whiteRowY = 170.0f; // below the black-key height (0.62 * keys)
-        const float blackRowY = 40.0f;  // inside the black-key height
-
-        // Painting and hit testing share one geometry, so mapping the visible
-        // rows is a direct check of the key layout.
-        std::vector<int> naturals;
-        int previous = -1;
-        for (float x = 0.0f; x < static_cast<float>(area.getWidth()); x += 1.0f)
-        {
-            const int note = noteAt(x, whiteRowY);
-            if (note >= 0 && note != previous)
-            {
-                naturals.push_back(note);
-                previous = note;
-            }
-        }
-        require(naturals.size() == 36,
-                "piano: the white row shows 36 natural keys C2..C7 (got "
-                    + juce::String(static_cast<int>(naturals.size())) + ")");
-        require(naturals.front() == 36 && naturals.back() == 96,
-                "piano: the white row starts at C2 (36) and ends at C7 (96)");
-        for (std::size_t index = 0; index < naturals.size(); ++index)
-        {
-            const int pitchClass = naturals[index] % 12;
-            require(pitchClass == 0 || pitchClass == 2 || pitchClass == 4 || pitchClass == 5
-                        || pitchClass == 7 || pitchClass == 9 || pitchClass == 11,
-                    "piano: the white row only produces natural notes");
-            if (index > 0)
-                require(naturals[index] > naturals[index - 1],
-                        "piano: the white row ascends left to right");
-        }
-
-        std::vector<int> chromatic;
-        previous = -1;
-        for (float x = 0.0f; x < static_cast<float>(area.getWidth()); x += 1.0f)
-        {
-            const int note = noteAt(x, blackRowY);
-            if (note >= 0 && note != previous)
-            {
-                chromatic.push_back(note);
-                previous = note;
-            }
-        }
-        require(chromatic.size() == 61,
-                "piano: the full key bed spans C2..C7 (61 keys, got "
-                    + juce::String(static_cast<int>(chromatic.size())) + ")");
-        for (std::size_t index = 0; index < chromatic.size(); ++index)
-            require(chromatic[index] == 36 + static_cast<int>(index),
-                    "piano: the key bed maps 1:1 to MIDI notes 36..96 in order");
-
-        const auto xForNote = [&noteAt, &area](int wanted, float localY)
-        {
-            for (float x = 0.0f; x < static_cast<float>(area.getWidth()); x += 0.5f)
-                if (noteAt(x, localY) == wanted)
-                    return x;
-            return -1.0f;
-        };
-        const auto mouseFor = [&piano](float localX, float localY, bool dragged)
-        {
-            return makeMouseEvent(*piano, { localX, localY }, dragged);
-        };
-
-        // ---- press C3: a real trigger note and a real chord -------------
-        const float c3x = xForNote(48, whiteRowY);
-        require(c3x >= 0.0f, "piano: C3 is reachable on the white row");
-
-        piano->mouseDown(mouseFor(c3x, whiteRowY, false));
-        juce::AudioBuffer<float> pressAudio(0, 512);
-        juce::MidiBuffer pressMidi;
-        runBlock(processor, pressAudio, pressMidi);
-        require(processor.isTriggerNoteDown(1, 48),
-                "piano: a mouse-down on C3 reaches the Core as a real trigger note");
-        require(processor.activeTriggerCount() == 1,
-                "piano: exactly one trigger note is held");
-        const auto chord = generatedNoteOnPitches(pressMidi);
-        require(chord.size() >= 3, "piano: a mouse-down generates a real chord");
-        require(processor.activeOutputNoteCount() > 0,
-                "piano: the generated chord is reported in the processor output state");
-
-        // The SAME trigger through the external MIDI path must be byte-identical.
-        {
-            ChordEngineAudioProcessor reference;
-            reference.prepareToPlay(44100.0, 512);
-            juce::AudioBuffer<float> refAudio(0, 512);
-            juce::MidiBuffer refMidi;
-            refMidi.addEvent(juce::MidiMessage::noteOn(1, 48, static_cast<juce::uint8>(100)), 0);
-            runBlock(reference, refAudio, refMidi);
-            require(chord == generatedNoteOnPitches(refMidi),
-                    "piano: an on-screen key generates the same chord as an external MIDI note");
-            require(generatedNoteOnVelocities(pressMidi) == generatedNoteOnVelocities(refMidi),
-                    "piano: an on-screen key uses the same velocity strategy as external MIDI");
-            require(processor.activeOutputNoteCount() == reference.activeOutputNoteCount(),
-                    "piano: an on-screen key drives the same Core output state");
-        }
-
-        // ---- drag C3 -> E3: release the old note, trigger the new one ---
-        const float e3x = xForNote(52, whiteRowY);
-        require(e3x >= 0.0f, "piano: E3 is reachable on the white row");
-        piano->mouseDrag(mouseFor(e3x, whiteRowY, true));
-        juce::AudioBuffer<float> dragAudio(0, 512);
-        juce::MidiBuffer dragMidi;
-        runBlock(processor, dragAudio, dragMidi);
-        require(!processor.isTriggerNoteDown(1, 48), "piano: dragging off C3 releases it");
-        require(processor.isTriggerNoteDown(1, 52), "piano: dragging onto E3 triggers it");
-        require(generatedNoteOnPitches(dragMidi).size() >= 3,
-                "piano: the drag transition generates a new chord");
-
-        // ---- release: real note-offs downstream -------------------------
-        piano->mouseUp(mouseFor(e3x, whiteRowY, true));
-        juce::AudioBuffer<float> upAudio(0, 512);
-        juce::MidiBuffer upMidi;
-        runBlock(processor, upAudio, upMidi);
-        require(!processor.isTriggerNoteDown(1, 52), "piano: mouse-up releases the trigger note");
-        require(processor.activeTriggerCount() == 0, "piano: no trigger note is left held");
-        bool sawNoteOff = false;
-        for (const auto metadata : upMidi)
-            if (metadata.getMessage().isNoteOff())
-                sawNoteOff = true;
-        require(sawNoteOff, "piano: mouse-up emits real note-offs for the generated chord");
-        require(processor.activeOutputNoteCount() == 0,
-                "piano: mouse-up releases every generated chord note");
-
-        // The GUI never computes harmony: the editor source must contain no
-        // chord-building call of its own.
-        const auto editorSource = readSourceFile("Source/PluginEditor.cpp");
-        require(!editorSource.contains("generateChordForTrigger"),
-                "piano: the editor never resolves a chord itself");
-        require(editorSource.contains("pushUiNoteOn"),
-                "piano: the editor routes keys through the processor's note path");
-        casePassed();
-    }
-
-    // =================================================================
-    // 17. RECORD ARM is centred and contained inside the recorder card.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("recorder-layout"));
-
-        const auto checkLayout = [&editor](const juce::String& sizeName)
-        {
-            auto* pill = findButton(editor, "recorder-action");
-            require(pill != nullptr, "recorder layout (" + sizeName + "): the action pill exists");
-
-            const auto card = editor.recorderCardBounds();
-            const auto bounds = pill->getBounds();
-            require(card.contains(bounds),
-                    "recorder layout (" + sizeName
-                        + "): RECORD ARM is fully inside the MIDI RECORDER card");
-            require(std::abs(bounds.getCentreX() - card.getCentreX()) <= 1,
-                    "recorder layout (" + sizeName
-                        + "): RECORD ARM is horizontally centred in the card");
-            require(bounds.getY() > card.getY() && bounds.getBottom() < card.getBottom(),
-                    "recorder layout (" + sizeName
-                        + "): RECORD ARM never touches the card boundary");
-            require(bounds.getBottom() <= card.getBottom() - 2
-                        && bounds.getY() >= card.getY() + 2,
-                    "recorder layout (" + sizeName
-                        + "): RECORD ARM keeps a visible inset inside the card");
-        };
-
-        editor.setSize(800, 650);
-        pumpMessages(20);
-        checkLayout("800x650");
-
-        editor.setSize(ChordEngineAudioProcessor::minimumEditorWidth,
-                       ChordEngineAudioProcessor::minimumEditorHeight);
-        pumpMessages(20);
-        checkLayout("640x520");
-
-        editor.setSize(ChordEngineAudioProcessor::maximumEditorWidth,
-                       ChordEngineAudioProcessor::maximumEditorHeight);
-        pumpMessages(20);
-        checkLayout("1280x1040");
-
-        // The pill keeps its full arm / cancel / stop behaviour.
-        editor.setSize(800, 650);
-        pumpMessages(20);
-        clickButton(editor, "recorder-action", "recorder layout");
-        require(processor.recorderState() == 1, "recorder layout: arming still works");
-        require(findButton(editor, "recorder-action")->getButtonText() == "CANCEL",
-                "recorder layout: the armed state still relabels the pill");
-        clickButton(editor, "recorder-action", "recorder layout");
-        require(processor.recorderState() == 0, "recorder layout: cancelling still works");
-        casePassed();
-    }
-
-    // =================================================================
-    // 18. INTERNAL AUDIO is honestly unavailable, never a fake toggle.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("internal-audio"));
-        editor.setSize(800, 650);
-        pumpMessages(20);
-
-        auto* chip = findComponentWithId(editor, "internal-audio-status");
-        require(chip != nullptr, "internal audio: the reference card chip exists");
-        require(dynamic_cast<juce::Button*>(chip) == nullptr,
-                "internal audio: the chip is not a button, so it can never fake an ON/OFF toggle");
-        require(findButton(editor, "internal-audio-status") == nullptr,
-                "internal audio: no clickable control is published for an unsupported feature");
-
-        auto* tip = dynamic_cast<juce::SettableTooltipClient*>(chip);
-        require(tip != nullptr && tip->getTooltip().contains("no audio buses"),
-                "internal audio: the tooltip documents the exact architectural limitation");
-        require(labelText(editor, "internal-audio-sub-label", "internal audio")
-                    == "MIDI FX - load ChordEngine Instrument for sound",
-                "internal audio: the card caption states the limitation on screen");
-
-        // The decision is architectural, so pin the architecture itself: the
-        // product is a MIDI effect that rejects every audio bus layout.
-        require(processor.isMidiEffect(),
-                "internal audio: the plugin is a MIDI effect in both formats");
-        ChordEngineAudioProcessor::BusesLayout midiOnlyLayout; // no buses at all
-        require(processor.isBusesLayoutSupported(midiOnlyLayout),
-                "internal audio: the MIDI-only (no audio bus) layout is the supported one");
-        auto withAudio = midiOnlyLayout;
-        withAudio.outputBuses.add(juce::AudioChannelSet::stereo());
-        require(!processor.isBusesLayoutSupported(withAudio),
-                "internal audio: an audio output bus is rejected, which is exactly why the "
-                "reference's internal SineSynth cannot be provided");
-        casePassed();
-    }
-
-    // =================================================================
-    // 19. The lifetime-licence row fits the INFO page: it exists, it stays
-    //     inside the painted INFO bed and clear of the help panel, nothing on
-    //     the page overlaps, and the reference help geometry is untouched.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        ChordEngineAudioProcessorEditor editor(
-            processor, temporaryStorageDirectory("info-layout"));
-        editor.setSize(800, 650);
-        pumpMessages(20);
-        clickButton(editor, "info-button", "info layout");
-
-        auto* keyLabel = findComponentWithId(editor, "license-key-label");
-        auto* keyField = dynamic_cast<juce::TextEditor*>(
-            findComponentWithId(editor, "license-key-editor"));
-        auto* activate = findButton(editor, "license-activate");
-        require(keyLabel != nullptr && keyLabel->isVisible(),
-                "info layout: the licence-key header is on the INFO page");
-        require(keyField != nullptr && keyField->isVisible(),
-                "info layout: the licence-key field is on the INFO page");
-        require(activate != nullptr && activate->isVisible(),
-                "info layout: the ACTIVATE control is on the INFO page");
-        require(activate->getButtonText() == "ACTIVATE",
-                "info layout: the control is idle-labelled before any activation");
-
-        // Every visible control on the page lives inside the painted INFO bed,
-        // and no two of them overlap. The list is the page's real control set,
-        // not a restatement of the layout.
-        const std::array<const char*, 19> infoControlIds {{
-            "info-title", "info-version", "info-account-header", "info-user", "info-plus",
-            "info-license", "license-key-label", "license-key-editor", "license-activate",
-            "info-updates-header", "info-current-version", "info-latest-version",
-            "info-update-status", "check-updates", "open-music-prod-studio", "sign-in",
-            "sign-out", "info-auth-hint", "info-trial-header" }};
-        const auto bed = editor.infoBedBounds();
-        const auto helpPanel = editor.infoHelpPanelBounds();
-        std::vector<std::pair<juce::String, juce::Rectangle<int>>> visible;
-
-        for (const auto* id : infoControlIds)
-        {
-            auto* component = findComponentWithId(editor, id);
-            require(component != nullptr, juce::String("info layout: '") + id + "' must exist");
-            if (!component->isVisible())
-                continue;
-
-            const auto bounds = component->getBounds();
-            require(bed.contains(bounds),
-                    juce::String("info layout: '") + id + "' must stay inside the INFO bed");
-            for (const auto& other : visible)
-                require(!bounds.intersects(other.second),
-                        juce::String("info layout: '") + id + "' overlaps '" + other.first + "'");
-            visible.emplace_back(id, bounds);
-        }
-
-        require(visible.size() >= 14,
-                "info layout: the whole INFO page is present and visible");
-
-        // The new row must not crowd the help panel, and the reference help
-        // block keeps its own geometry inside it.
-        require(!activate->getBounds().intersects(helpPanel),
-                "info layout: the ACTIVATE control never reaches the help panel");
-        auto* helpButton = findButton(editor, "help-feedback");
-        require(helpButton != nullptr && helpPanel.contains(helpButton->getBounds()),
-                "info layout: the reference help button stays inside its own panel");
-        require(!keyField->getBounds().intersects(
-                    findComponentWithId(editor, "info-updates-header")->getBounds()),
-                "info layout: the licence row never collides with the UPDATES header");
-
-        // The row is really wired: a typed key reaches the licensing boundary,
-        // the field is cleared (the key is never retained), and - signed out -
-        // the real flow refuses to invent a device and says so instead of
-        // contacting the server.
-        keyField->setText("PC-7QF2-3MHD-NX4T-9BKR", juce::dontSendNotification);
-        clickButton(editor, "license-activate", "info layout");
-        require(keyField->getText().isEmpty(),
-                "info layout: ACTIVATE clears the key field, which never keeps a key");
-        require(labelText(editor, "info-auth-hint", "info layout")
-                    .contains("Sign in to Music-Prod first"),
-                "info layout: activating while signed out explains what is missing");
-        casePassed();
-    }
-
-    // =================================================================
-    // 20. The redesigned CHORD page keeps every control inside its own
-    //     surface with no overlaps at every supported size, and the preset
-    //     browser steps through the real preset catalogue.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("chord-layout"));
-
-        const auto checkLayout = [&editor](const juce::String& sizeName)
-        {
-            const auto context = "chord layout (" + sizeName + ")";
-            const auto hero = editor.chordHeroBounds();
-            const auto strip = editor.outputStripBounds();
-            const auto recorder = editor.recorderCardBounds();
-            require(hero.contains(recorder), context + ": the recorder well sits inside the hero");
-            require(!hero.intersects(strip), context + ": the hero and the output strip are separate");
-
-            const auto boundsOf = [&editor, &context](const char* id)
-            {
-                auto* component = findComponentWithId(editor, id);
-                require(component != nullptr && component->isVisible(),
-                        context + ": '" + id + "' must exist and be visible");
-                return component->getBounds();
-            };
-
-            for (const auto* id : { "chord-caption", "chord-name", "chord-notes" })
-            {
-                require(hero.contains(boundsOf(id)),
-                        context + ": '" + id + "' stays inside the hero");
-                require(!boundsOf(id).intersects(recorder),
-                        context + ": '" + id + "' never reaches the recorder well");
-            }
-            for (const auto* id : { "recorder-status", "recorder-count", "recorder-hint",
-                                    "recorder-action" })
-                require(recorder.contains(boundsOf(id)),
-                        context + ": '" + id + "' stays inside the recorder well");
-
-            for (const auto* id : { "transpose-label", "octave-down", "transpose-octave",
-                                    "octave-up", "transpose-whole", "transpose-lowest",
-                                    "transpose-highest", "velocity-mode-label",
-                                    "velocity-mode-selector", "fixed-velocity-label",
-                                    "fixed-velocity-slider", "fixed-velocity-value",
-                                    "internal-audio-label", "internal-audio-status",
-                                    "internal-audio-sub-label" })
-                require(strip.contains(boundsOf(id)),
-                        context + ": '" + id + "' stays inside the output strip");
-
-            // The harmony row and the keyboard sit between the two surfaces,
-            // and no two controls of the page overlap anywhere.
-            const std::array<const char*, 29> pageIds {{
-                "header-wordmark", "chord-button", "info-button",
-                "chord-caption", "chord-name", "chord-notes", "recorder-status",
-                "recorder-count", "recorder-action",
-                "chord-preset-label", "preset-counter", "preset-previous", "chord-selector",
-                "preset-next", "key-label", "key-selector", "scale-label", "scale-selector",
-                "piano-display", "transpose-label", "octave-down", "transpose-octave",
-                "octave-up", "transpose-whole", "transpose-lowest", "transpose-highest",
-                "velocity-mode-selector", "fixed-velocity-slider", "internal-audio-status" }};
-            std::vector<std::pair<juce::String, juce::Rectangle<int>>> placed;
-            for (const auto* id : pageIds)
-            {
-                const auto bounds = boundsOf(id);
-                require(editor.getLocalBounds().contains(bounds),
-                        context + ": '" + id + "' stays inside the editor");
-                for (const auto& other : placed)
-                    require(!bounds.intersects(other.second),
-                            context + ": '" + id + "' overlaps '" + other.first + "'");
-                placed.emplace_back(id, bounds);
-            }
-
-            for (const auto* id : { "chord-selector", "key-selector", "scale-selector",
-                                    "preset-previous", "preset-next", "piano-display" })
-            {
-                const auto bounds = boundsOf(id);
-                require(bounds.getY() >= hero.getBottom() && bounds.getBottom() <= strip.getY(),
-                        context + ": '" + id + "' sits between the hero and the output strip");
-            }
-
-            // Practical hit areas: no interactive control is smaller than
-            // 20 px at the smallest editor size.
-            for (const auto* id : { "chord-button", "info-button", "preset-previous", "preset-next",
-                                    "octave-down", "octave-up", "transpose-whole",
-                                    "transpose-lowest", "transpose-highest", "recorder-action",
-                                    "chord-selector", "key-selector", "scale-selector",
-                                    "velocity-mode-selector" })
-            {
-                const auto bounds = boundsOf(id);
-                require(bounds.getWidth() >= 20 && bounds.getHeight() >= 18,
-                        context + ": '" + id + "' keeps a practical hit area");
-            }
-        };
-
-        editor.setSize(800, 650);
-        pumpMessages(20);
-        checkLayout("800x650");
-        editor.setSize(ChordEngineAudioProcessor::minimumEditorWidth,
-                       ChordEngineAudioProcessor::minimumEditorHeight);
-        pumpMessages(20);
-        checkLayout("640x520");
-        editor.setSize(ChordEngineAudioProcessor::maximumEditorWidth,
-                       ChordEngineAudioProcessor::maximumEditorHeight);
-        pumpMessages(20);
-        checkLayout("1280x1040");
-
-        // ---- preset browsing through the real catalogue -----------------
-        editor.setSize(800, 650);
-        pumpMessages(20);
-        const auto presetCount = static_cast<int>(chordengine::core::ChordPresetSystem::count());
-        auto* selector = dynamic_cast<juce::ComboBox*>(findComponentWithId(editor, "chord-selector"));
-        require(selector != nullptr, "preset browser: the preset selector exists");
-        require(selector->getNumItems() == presetCount,
-                "preset browser: the selector lists every preset in the catalogue");
-
-        processor.setChordPreset(static_cast<chordengine::core::ChordPresetId>(0));
-        pumpMessages(80);
-        clickButton(editor, "preset-next", "preset browser");
-        require(static_cast<int>(processor.configurationSnapshot().preset) == 1,
-                "preset browser: NEXT selects the following preset in the Core");
-        require(selector->getSelectedId() == 2,
-                "preset browser: the selector follows the browser");
-        require(labelText(editor, "preset-counter", "preset browser")
-                    == "02 / " + juce::String(presetCount).paddedLeft('0', 2),
-                "preset browser: the counter shows the position in the catalogue");
-
-        clickButton(editor, "preset-previous", "preset browser");
-        clickButton(editor, "preset-previous", "preset browser");
-        require(static_cast<int>(processor.configurationSnapshot().preset) == presetCount - 1,
-                "preset browser: PREVIOUS wraps from the first preset to the last");
-        clickButton(editor, "preset-next", "preset browser");
-        require(static_cast<int>(processor.configurationSnapshot().preset) == 0,
-                "preset browser: NEXT wraps from the last preset to the first");
-        casePassed();
-    }
-
-    // =================================================================
-    // 21. The INFO page layout holds at every supported size: every control
-    //     inside the bed, no overlaps, the help block inside its panel and
-    //     the lifetime-licence row clear of both the help panel and the
-    //     updates column.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("info-sizes"));
-        editor.setSize(800, 650);
-        pumpMessages(20);
-        clickButton(editor, "info-button", "info sizes");
-
-        const std::array<std::pair<int, int>, 3> sizes {{
-            { 800, 650 },
-            { ChordEngineAudioProcessor::minimumEditorWidth,
-              ChordEngineAudioProcessor::minimumEditorHeight },
-            { ChordEngineAudioProcessor::maximumEditorWidth,
-              ChordEngineAudioProcessor::maximumEditorHeight } }};
-        for (const auto& size : sizes)
-        {
-            editor.setSize(size.first, size.second);
-            pumpMessages(20);
-            const auto context = "info sizes (" + juce::String(size.first) + "x"
-                + juce::String(size.second) + ")";
-
-            const auto bed = editor.infoBedBounds();
-            const auto helpPanel = editor.infoHelpPanelBounds();
-            require(bed.contains(helpPanel), context + ": the help panel sits inside the INFO bed");
-
-            const std::array<const char*, 22> ids {{
-                "info-title", "info-version", "info-account-header", "info-user", "info-plus",
-                "info-license", "sign-in", "sign-out", "open-music-prod-studio",
-                "license-key-label", "license-key-editor", "license-activate", "info-auth-hint",
-                "info-updates-header", "info-current-version", "info-latest-version",
-                "info-update-status", "check-updates", "info-trial-header", "info-trial-status",
-                "info-help-title", "help-feedback" }};
-            std::vector<std::pair<juce::String, juce::Rectangle<int>>> placed;
-            for (const auto* id : ids)
-            {
-                auto* component = findComponentWithId(editor, id);
-                require(component != nullptr, context + ": '" + id + "' must exist");
-                if (!component->isVisible())
-                    continue;
-                const auto bounds = component->getBounds();
-                require(bed.contains(bounds), context + ": '" + id + "' stays inside the INFO bed");
-                const bool helpBlock = juce::String(id) == "info-help-title"
-                    || juce::String(id) == "help-feedback";
-                require(helpBlock ? helpPanel.contains(bounds) : !bounds.intersects(helpPanel),
-                        context + ": '" + id + (helpBlock ? "' stays inside the help panel"
-                                                          : "' stays clear of the help panel"));
-                for (const auto& other : placed)
-                    require(!bounds.intersects(other.second),
-                            context + ": '" + id + "' overlaps '" + other.first + "'");
-                placed.emplace_back(id, bounds);
-            }
-
-            // The licence row: field and ACTIVATE on one line, the field left
-            // of its button, the row below the account actions and above the
-            // updates section, and its result line directly beneath it.
-            const auto field = findComponentWithId(editor, "license-key-editor")->getBounds();
-            const auto activate = findButton(editor, "license-activate")->getBounds();
-            require(field.getRight() < activate.getX()
-                        && std::abs(field.getCentreY() - activate.getCentreY()) <= 1,
-                    context + ": the key field and ACTIVATE share one line");
-            const auto signIn = findButton(editor, "sign-in")->getBounds();
-            const auto updatesTop = findComponentWithId(editor, "info-updates-header")->getY();
-            const auto hint = findComponentWithId(editor, "info-auth-hint")->getBounds();
-            require(signIn.getBottom() < field.getY() && activate.getBottom() < updatesTop,
-                    context + ": the licence row sits between the account actions and UPDATES");
-            require(hint.getY() >= field.getBottom() && hint.getBottom() < updatesTop
-                        && hint.getX() == field.getX(),
-                    context + ": the activation result line sits under the key field, aligned to it");
-            require(hint.getHeight() >= juce::roundToInt(36.0f * static_cast<float>(size.first) / 800.0f),
-                    context + ": the result line has room for a multi-line message");
-            require(activate.getHeight() >= 20 && activate.getWidth() >= 60,
-                    context + ": ACTIVATE keeps a practical hit area");
-        }
-        casePassed();
-    }
-
-    // =================================================================
-    // 22. First open: the editor is fully laid out and typeset by its
-    //     constructor alone. A host that opens it at the default size never
-    //     resizes it, so nothing may depend on a later resize event.
-    // =================================================================
-    {
-        ChordEngineAudioProcessor processor;
-        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("first-open"));
-        require(editor.getWidth() == ChordEngineAudioProcessor::defaultEditorWidth
-                    && editor.getHeight() == ChordEngineAudioProcessor::defaultEditorHeight,
-                "first open: the editor opens at its default size");
-
-        const std::array<const char*, 16> ids {{
-            "header-wordmark", "chord-button", "info-button", "chord-caption", "chord-name",
-            "chord-notes", "recorder-action", "chord-selector", "preset-previous", "preset-next",
-            "key-selector", "scale-selector", "piano-display", "octave-down",
-            "velocity-mode-selector", "internal-audio-status" }};
-        std::vector<juce::Rectangle<int>> initialBounds;
-        for (const auto* id : ids)
-        {
-            auto* component = findComponentWithId(editor, id);
-            require(component != nullptr && !component->getBounds().isEmpty(),
-                    juce::String("first open: '") + id + "' is laid out by the constructor");
-            initialBounds.push_back(component->getBounds());
-        }
-
-        const auto fontOf = [&editor](const char* id)
-        {
-            auto* label = dynamic_cast<juce::Label*>(findComponentWithId(editor, id));
-            require(label != nullptr, juce::String("first open: label '") + id + "' exists");
-            return label->getFont();
-        };
-        const auto nameFont = fontOf("chord-name");
-        const auto captionFont = fontOf("chord-preset-label");
-        require(std::abs(nameFont.getHeight() - 54.0f) < 0.5f,
-                "first open: the chord name is set at its display size without a resize");
-        require(nameFont.getTypefaceName() != captionFont.getTypefaceName(),
-                "first open: the chord name uses the display face, distinct from the captions");
-        // Captions are set in the embedded Schibsted Grotesk SemiBold cut (a
-        // static face whose style is "Regular", so isBold() does not apply).
-        require(captionFont.getExtraKerningFactor() > 0.05f
-                    && captionFont.getTypefaceName().startsWith("Schibsted Grotesk"),
-                "first open: captions carry their letter-spaced Schibsted Grotesk treatment");
-        require(fontOf("footer").getTypefaceName().startsWith("Inter"),
-                "first open: interface text is set in the embedded Inter face");
-
-        // A resize cycle back to the default size must reproduce exactly the
-        // constructor's layout and type: first-open and resized states agree.
-        editor.setSize(ChordEngineAudioProcessor::minimumEditorWidth,
-                       ChordEngineAudioProcessor::minimumEditorHeight);
-        pumpMessages(20);
-        require(fontOf("chord-name").getHeight() < nameFont.getHeight(),
-                "first open: the display type scales down with a smaller editor");
-        editor.setSize(ChordEngineAudioProcessor::defaultEditorWidth,
-                       ChordEngineAudioProcessor::defaultEditorHeight);
-        pumpMessages(20);
-        for (std::size_t index = 0; index < ids.size(); ++index)
-            require(findComponentWithId(editor, ids[index])->getBounds() == initialBounds[index],
-                    juce::String("first open: '") + ids[index]
-                        + "' has the same bounds after a resize cycle");
-        require(std::abs(fontOf("chord-name").getHeight() - nameFont.getHeight()) < 0.01f,
-                "first open: the chord name's type is identical after a resize cycle");
-        casePassed();
-    }
-
-    // 23. PACKS page and pack presets in the editor: the third page lists the
-    //     catalog, installed packs stay out of the preset menu without
-    //     Music-Prod+, a restored pack preset is still shown and played, and
-    //     the audio-output build publishes a real internal-audio switch.
-    {
-        struct CatalogTransport final : chordengine::packs::PackStoreTransport
-        {
-            int gets = 0;
-            int posts = 0;
-            void get(const juce::String&, std::size_t, Callback callback) override
-            {
-                ++gets;
-                const juce::String json = R"({"version":1,"generated_at":"2026-10-18T00:00:00Z","packs":[)"
-                    R"({"slug":"chordengine-stock","name":"ChordEngine Stock Pack","description":"","version":"1.0.0","preset_count":12,"is_stock":true,"size_bytes":1,"sha256":"0000000000000000000000000000000000000000000000000000000000000000","sort_order":0},)"
-                    R"({"slug":"chordengine-test-pack","name":"ChordEngine Test Pack","description":"","version":"1.0.0","preset_count":4,"is_stock":false,"size_bytes":1,"sha256":"1111111111111111111111111111111111111111111111111111111111111111","sort_order":1}]})";
-                chordengine::packs::StoreReply reply;
-                reply.status = 200;
-                reply.transportOk = true;
-                reply.body.append(json.toRawUTF8(), json.getNumBytesAsUTF8());
-                juce::MessageManager::callAsync([deliver = std::move(callback), reply] { deliver(reply); });
-            }
-            void postJson(const juce::String&, const juce::String&, std::size_t, Callback) override { ++posts; }
-        };
-
-        const auto storage = temporaryStorageDirectory("packs-page");
-        juce::MemoryBlock testPack;
-        juce::File(CHORDENGINE_SOURCE_DIR).getChildFile("Resources/Packs/chordengine-test-pack.json")
-            .loadFileAsData(testPack);
-        chordengine::packs::PackLibrary library(storage.getChildFile("Packs"));
-        require(library.install("chordengine-test-pack", testPack, chordengine::packs::sha256Hex(testPack))
-                    .isEmpty(),
-                "packs: the test pack installs into the editor's pack folder");
-
-        ChordEngineAudioProcessor processor(true);
-        processor.prepareToPlay(48000.0, 256);
-        auto transport = std::make_unique<CatalogTransport>();
-        auto* transportView = transport.get();
-        ChordEngineAudioProcessorEditor editor(processor, storage, nullptr, std::move(transport));
-        editor.setSize(800, 650);
-        pumpMessages(20);
-
-        require(transportView->gets == 0, "packs: the catalog is not fetched until the page opens");
-        auto* selector = dynamic_cast<juce::ComboBox*>(findComponentWithId(editor, "chord-selector"));
-        require(selector != nullptr && selector->getNumItems() == 12,
-                "packs: without Music-Prod+ the preset menu holds only the 12 stock presets");
-
-        auto* packsButton = findButton(editor, "packs-button");
-        require(packsButton != nullptr, "packs: the PACKS navigation button exists");
-        packsButton->triggerClick();
-        pumpMessages(80);
-        require(transportView->gets == 1, "packs: opening the page fetches the catalog once");
-        auto* list = findComponentWithId(editor, "packs-list");
-        require(list != nullptr && findComponentWithId(editor, "packs-viewport")->isVisible(),
-                "packs: the pack list is shown on the PACKS page");
-        require(!findComponentWithId(editor, "chord-selector")->isVisible(),
-                "packs: the CHORD controls are hidden on the PACKS page");
-        auto* listView = dynamic_cast<ChordEngineAudioProcessorEditor::PackListView*>(list);
-        require(listView != nullptr && listView->listings().size() == 2,
-                "packs: the list shows the stock pack and the test pack");
-        if (listView != nullptr && listView->listings().size() == 2)
-        {
-            require(listView->listings()[0].status == chordengine::packs::PackStatus::builtIn,
-                    "packs: the stock pack is built in");
-            require(listView->listings()[1].status == chordengine::packs::PackStatus::signInRequired
-                        && !listView->listings()[1].usable,
-                    "packs: signed out, the installed test pack is not usable");
-            listView->onAction(1); // SIGN IN starts the account link, never a download
-            pumpMessages(20);
-            require(transportView->posts == 0, "packs: no download is requested without membership");
-        }
-
-        ChordEngineAudioProcessor::PackPreset restored;
-        restored.packSlug = "chordengine-test-pack";
-        restored.packName = "ChordEngine Test Pack";
-        restored.presetName = "Test Gospel";
-        restored.preset.triggerMap.fill(7);
-        restored.preset.voicingStyle = "open";
-        require(processor.setPackPreset(restored), "packs: a project's pack preset is applied");
-        findButton(editor, "chord-button")->triggerClick();
-        pumpMessages(80);
-        require(selector->getText() == "Test Gospel",
-                "packs: a restored pack preset is named in the preset selector");
-
-        auto* toggle = findButton(editor, "internal-audio-toggle");
-        require(toggle != nullptr && toggle->isVisible(),
-                "internal audio: the audio-output build shows a real switch");
-        require(findComponentWithId(editor, "internal-audio-status") == nullptr
-                    || !findComponentWithId(editor, "internal-audio-status")->isVisible(),
-                "internal audio: the MIDI FX chip is hidden in the audio-output build");
-        toggle->triggerClick();
-        pumpMessages(20);
-        require(processor.internalAudioEnabled(), "internal audio: the switch turns internal audio on");
-        auto* sound = dynamic_cast<juce::ComboBox*>(findComponentWithId(editor, "internal-sound-selector"));
-        require(sound != nullptr && sound->getNumItems() == 3, "internal audio: Synth, Piano and Bass are offered");
-        sound->setSelectedId(3);
-        pumpMessages(20);
-        require(processor.internalSound() == ChordEngineAudioProcessor::InternalSound::bass,
-                "internal audio: the sound selector sets the sound");
-        casePassed();
-    }
-
-    constexpr int expectedCaseCount = 23;
+    constexpr int expectedCaseCount = 13;
     require(casesPassed == expectedCaseCount,
-            "every functional case must run: expected " + juce::String(expectedCaseCount)
-                + ", executed " + juce::String(casesPassed));
+            "every functional case must run: expected " + std::to_string(expectedCaseCount)
+                + ", executed " + std::to_string(casesPassed));
 
     std::cout << "ChordEngineFunctionalTests: " << casesPassed << "/" << expectedCaseCount
-              << " functional parity cases passed\n";
+              << " processor and licensing functional cases passed (editor cases: ChordEngineEditorTests)\n";
     return EXIT_SUCCESS;
 }
