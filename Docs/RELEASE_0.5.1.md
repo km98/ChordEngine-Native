@@ -1,7 +1,8 @@
 # ChordEngine 0.5.1 — licensing in the processor
 
-**Status: built from `main`, signed, notarized and submitted for approval (see the end).
-Not published by this session.**
+**Status: built from `main` (`0e9a31a`), signed, notarized and submitted for approval
+(release `c86688b6-1abd-4004-9416-7f7404daada4`, `ready_for_approval`). Not published by this
+session.**
 
 ## Why
 
@@ -61,3 +62,29 @@ names, so the CoProducer naming does not apply.
   starts the clock from its own chord, closes the gate when the trial runs out and then
   generates no chord.
 - CTest 14/14 in `Build/macOS-JUCE9`.
+
+## Signed build and release record (2026-10-22)
+
+Built in `/tmp/ChordEngine-0.5.1-RC-20261022a` with the documented configure; CTest 14/14;
+`PackageMacDMG.sh --version 0.5.1` exit 0. PKG notarization `2f080fd1-d0fa-488d-881f-6d40de241bde`
+and DMG notarization `99588ebe-646d-4e8f-b382-cdea70add5b6` Accepted, both stapled, Gatekeeper
+"Notarized Developer ID". The PKG inside the mounted DMG equals the standalone PKG, its
+PackageInfo says `com.musicprod.chordengine.pkg` 0.5.1, and all three payload bundles are 0.5.1.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| `ChordEngine-0.5.1-macOS.pkg` (inside the DMG) | 26731510 | `e8f0356a7dabf5f1bbef17562b8dde79a288653a8d5d16244859180e526e9476` |
+| `ChordEngine-0.5.1-macOS.dmg` | 27827524 | `d534e1584c29f0b38119364db18aef5f806d240cf930a9832fb66640f8761b31` |
+
+Release record (publisher API, write scope; same shape as 0.5.0):
+
+- Release `c86688b6-1abd-4004-9416-7f7404daada4`: product `chordengine`, 0.5.1, stable,
+  build 2, not mandatory, minimum macOS 12.0. Status `ready_for_approval`.
+- Artifact `fa224b01-17aa-442f-b97c-1956b909649f`: `dmg`, macos, universal; server SHA-256 and
+  size equal the table.
+- `installerMetadata`: pkg `ChordEngine-0.5.1-macOS.pkg` with the SHA-256 and size above,
+  identifier `com.musicprod.chordengine.pkg`, version 0.5.1, install location `/`; codesign
+  Developer ID Installer: Martin Kadziolka (3A4R5EKM7V), signed 2026-10-22T08:30:19Z;
+  notarization accepted, stapled, submission `2f080fd1-…`; minimum macOS 12.0.
+- At submission, 0.5.0 (`11d91ba3-…`, build 1) was already **published** (not by this
+  session); publishing 0.5.1 supersedes it.
