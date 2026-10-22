@@ -1,21 +1,48 @@
 #pragma once
 
 #include "../Core/ChordEngineCore.h"
+#include "../MIDI/TakeQuantize.h"
 
 #include <juce_core/juce_core.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 
 namespace chordengine::state
 {
-// Persistent user-controlled musical settings only: key, scale, chord preset,
-// transpose target and octave, velocity mode and fixed velocity. Licensing,
-// update, recorder, sustain/panic and held-note state are deliberately NOT part
-// of this snapshot; they are never written into the host state.
+// A preset from an installed pack, stored WITH its chord map so a project
+// plays the same chords on reload and on another machine whether or not the
+// pack is installed there. configuration.preset remains the stock fallback.
+struct PackPresetState
+{
+    juce::String packSlug;
+    juce::String packName;
+    juce::String presetName;
+    chordengine::core::CustomChordPreset preset{};
+};
+
+enum class InternalSound : std::uint8_t { synth, piano, bass };
+
+// Persistent user-controlled settings only: key, scale, chord preset (stock or
+// pack), transpose target and octave, velocity mode and fixed velocity, and
+// the internal-audio switch and sound, and the recorder's export quantize
+// grid. Licensing, update, recorder,
+// sustain/panic and held-note state are deliberately NOT part of this
+// snapshot; they are never written into the host state.
 struct PluginState
 {
     chordengine::core::CoreConfiguration configuration{};
+    std::optional<PackPresetState> packPreset;
+    // Absent in payloads written before internal audio existed; the processor
+    // then keeps its own default.
+    std::optional<bool> internalAudioEnabled;
+    std::optional<InternalSound> internalSound;
+    // The recorder's export quantize grid. Absent in older payloads (the
+    // processor then keeps none: takes export exactly as played).
+    std::optional<chordengine::midi::TakeQuantize> recordQuantize;
+    // FOLLOW DAW RECORD. Absent in older payloads (the processor keeps off).
+    std::optional<bool> followHostRecord;
 };
 
 // Format version 1. Bump only with a migration path for older payloads.

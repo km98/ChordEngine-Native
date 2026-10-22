@@ -57,6 +57,7 @@ void casePassed()
     ++casesPassed;
 }
 
+using chordengine::licensing::CachedEntitlement;
 using chordengine::licensing::HttpReply;
 using chordengine::licensing::LicensingBoundary;
 using chordengine::licensing::LicensingModel;
@@ -70,11 +71,14 @@ class MockAuthService final : public chordengine::licensing::AuthService
 {
 public:
     void start(const juce::String& deviceName, const juce::String& pluginVersion,
+               const juce::String& product, const juce::String& deviceId,
                Callback callback) override
     {
         ++startCalls;
         lastDeviceName = deviceName;
         lastPluginVersion = pluginVersion;
+        lastProduct = product;
+        lastDeviceId = deviceId;
         pendingStart = std::move(callback);
     }
 
@@ -99,18 +103,42 @@ public:
         pendingLogout = std::move(callback);
     }
 
+    void activateLicense(const juce::String& token, const juce::String& licenseKey,
+                        const juce::String& deviceId, const juce::String& deviceLabel,
+                        const juce::String& platform, const juce::String& pluginVersion,
+                        Callback callback) override
+    {
+        ++activateCalls;
+        lastToken = token;
+        lastLicenseKey = licenseKey;
+        lastActivateDeviceId = deviceId;
+        lastDeviceLabel = deviceLabel;
+        lastPlatform = platform;
+        lastActivatePluginVersion = pluginVersion;
+        pendingActivate = std::move(callback);
+    }
+
     int startCalls = 0;
     int pollCalls = 0;
     int entitlementCalls = 0;
     int logoutCalls = 0;
+    int activateCalls = 0;
     juce::String lastDeviceName;
     juce::String lastPluginVersion;
+    juce::String lastProduct;
+    juce::String lastDeviceId;
     juce::String lastPolledCode;
     juce::String lastToken;
+    juce::String lastLicenseKey;
+    juce::String lastActivateDeviceId;
+    juce::String lastDeviceLabel;
+    juce::String lastPlatform;
+    juce::String lastActivatePluginVersion;
     Callback pendingStart;
     Callback pendingPoll;
     Callback pendingEntitlements;
     Callback pendingLogout;
+    Callback pendingActivate;
 };
 
 class MockUpdateService final : public chordengine::licensing::UpdateService
@@ -522,8 +550,12 @@ int main()
                 "trial clock: the budget can never go negative");
 
         // A licensed session ignores the clock entirely.
+        CachedEntitlement verified;
+        verified.entitled = true;
+        verified.subscribed = true;
+        verified.subscriptionEntitles = true;
         LicensingModel licensed;
-        licensed.loadToken("token", "Martin", true, juce::Time::currentTimeMillis());
+        licensed.loadToken("token", "Martin", verified, juce::Time::currentTimeMillis());
         licensed.applyCachedEntitlement(juce::Time::currentTimeMillis());
         require(licensed.snapshot().licensed, "trial clock: a verified token licenses the session");
         licensed.notePlaybackStarted();
@@ -599,8 +631,14 @@ int main()
         require(auth.startCalls == 1, "sign in: one device-code start is requested");
         require(auth.lastDeviceName == "ChordEngine",
                 "sign in: the reference device name is reported");
-        require(auth.lastPluginVersion == "0.4.0",
-                "sign in: the reference product version is reported");
+        require(auth.lastPluginVersion == JucePlugin_VersionString,
+                "sign in: the version of THIS build is reported as plugin_version, "
+                "never the reference product's 0.4.0");
+        require(auth.lastProduct == "chordengine",
+                "sign in: the explicit product slug is sent, never inferred from the "
+                "display device name");
+        require(chordengine::licensing::isDeviceIdFormat(auth.lastDeviceId),
+                "sign in: a valid per-installation device id travels with the pairing code");
         require(boundary.snapshot().phase == chordengine::licensing::Phase::linking,
                 "sign in: the session enters the linking phase");
         require(!boundary.snapshot().polling,
@@ -650,9 +688,13 @@ int main()
         require(boundary.snapshot().user == "Martin",
                 "sign in: the server display name is shown");
 
-        // A verified subscription licenses the session.
+        // A verified, PRODUCT-SCOPED entitlement licenses the session. The
+        // gate is `plugin_entitled`; `subscribed` is display only.
         auth.pendingEntitlements(HttpReply { 200,
-            jsonObject({ { "ok", true }, { "subscribed", true } }), true });
+            jsonObject({ { "ok", true },
+                         { "subscribed", true },
+                         { "plugin_entitled", true } }),
+            true });
         require(boundary.snapshot().licensed, "sign in: a verified subscription licenses Plus");
         require(chordengine::licensing::plusLineText(boundary.snapshot())
                     == "Music-Prod+  ACTIVE",
@@ -724,7 +766,7 @@ int main()
                          { "display_name", "Martin" } }),
             true });
         auth.pendingEntitlements(HttpReply { 200,
-            jsonObject({ { "subscribed", true } }), true });
+            jsonObject({ { "subscribed", true }, { "plugin_entitled", true } }), true });
         require(chordengine::licensing::isSignedIn(boundary.snapshot()),
                 "account buttons: signed in after approval");
 
@@ -901,7 +943,7 @@ int main()
         clickButton(*editor, "info-button", "editor buttons");
         waitForUpdateCheck();
         require(labelText(*editor, "info-current-version", "editor buttons")
-                    == "Current version  0.1.0",
+                    == "Current version  " + juce::String(JucePlugin_VersionString),
                 "editor buttons: the version row uses the actual build metadata");
         require(labelText(*editor, "info-latest-version", "editor buttons")
                     == "Latest version  No published release",
@@ -920,7 +962,8 @@ int main()
         require(updateStub->calls == requestsBeforeClick + 1,
                 "editor buttons: one click performs exactly one update request");
         require(updateStub->lastUrl.contains("product=chordengine")
-                    && updateStub->lastUrl.contains("current=0.1.0")
+                    && updateStub->lastUrl.contains("current="
+                                                    + juce::String(JucePlugin_VersionString))
                     && updateStub->lastUrl.contains("platform="),
                 "editor buttons: the anonymous check carries the product, the build version "
                 "and the platform");
@@ -930,7 +973,7 @@ int main()
 
         // ---- the real logo asset and the disabled internal-audio pill --
         require(labelText(*editor, "internal-audio-sub-label", "editor buttons")
-                    == "MIDI effect - no audio bus",
+                    == "MIDI FX - load ChordEngine Instrument for sound",
                 "editor buttons: internal audio states its unavailability");
 
         // ---- the expiry gate is wired and hidden until it is needed -----
@@ -1326,7 +1369,7 @@ int main()
         require(tip != nullptr && tip->getTooltip().contains("no audio buses"),
                 "internal audio: the tooltip documents the exact architectural limitation");
         require(labelText(editor, "internal-audio-sub-label", "internal audio")
-                    == "MIDI effect - no audio bus",
+                    == "MIDI FX - load ChordEngine Instrument for sound",
                 "internal audio: the card caption states the limitation on screen");
 
         // The decision is architectural, so pin the architecture itself: the
@@ -1344,7 +1387,472 @@ int main()
         casePassed();
     }
 
-    constexpr int expectedCaseCount = 18;
+    // =================================================================
+    // 19. The lifetime-licence row fits the INFO page: it exists, it stays
+    //     inside the painted INFO bed and clear of the help panel, nothing on
+    //     the page overlaps, and the reference help geometry is untouched.
+    // =================================================================
+    {
+        ChordEngineAudioProcessor processor;
+        ChordEngineAudioProcessorEditor editor(
+            processor, temporaryStorageDirectory("info-layout"));
+        editor.setSize(800, 650);
+        pumpMessages(20);
+        clickButton(editor, "info-button", "info layout");
+
+        auto* keyLabel = findComponentWithId(editor, "license-key-label");
+        auto* keyField = dynamic_cast<juce::TextEditor*>(
+            findComponentWithId(editor, "license-key-editor"));
+        auto* activate = findButton(editor, "license-activate");
+        require(keyLabel != nullptr && keyLabel->isVisible(),
+                "info layout: the licence-key header is on the INFO page");
+        require(keyField != nullptr && keyField->isVisible(),
+                "info layout: the licence-key field is on the INFO page");
+        require(activate != nullptr && activate->isVisible(),
+                "info layout: the ACTIVATE control is on the INFO page");
+        require(activate->getButtonText() == "ACTIVATE",
+                "info layout: the control is idle-labelled before any activation");
+
+        // Every visible control on the page lives inside the painted INFO bed,
+        // and no two of them overlap. The list is the page's real control set,
+        // not a restatement of the layout.
+        const std::array<const char*, 19> infoControlIds {{
+            "info-title", "info-version", "info-account-header", "info-user", "info-plus",
+            "info-license", "license-key-label", "license-key-editor", "license-activate",
+            "info-updates-header", "info-current-version", "info-latest-version",
+            "info-update-status", "check-updates", "open-music-prod-studio", "sign-in",
+            "sign-out", "info-auth-hint", "info-trial-header" }};
+        const auto bed = editor.infoBedBounds();
+        const auto helpPanel = editor.infoHelpPanelBounds();
+        std::vector<std::pair<juce::String, juce::Rectangle<int>>> visible;
+
+        for (const auto* id : infoControlIds)
+        {
+            auto* component = findComponentWithId(editor, id);
+            require(component != nullptr, juce::String("info layout: '") + id + "' must exist");
+            if (!component->isVisible())
+                continue;
+
+            const auto bounds = component->getBounds();
+            require(bed.contains(bounds),
+                    juce::String("info layout: '") + id + "' must stay inside the INFO bed");
+            for (const auto& other : visible)
+                require(!bounds.intersects(other.second),
+                        juce::String("info layout: '") + id + "' overlaps '" + other.first + "'");
+            visible.emplace_back(id, bounds);
+        }
+
+        require(visible.size() >= 14,
+                "info layout: the whole INFO page is present and visible");
+
+        // The new row must not crowd the help panel, and the reference help
+        // block keeps its own geometry inside it.
+        require(!activate->getBounds().intersects(helpPanel),
+                "info layout: the ACTIVATE control never reaches the help panel");
+        auto* helpButton = findButton(editor, "help-feedback");
+        require(helpButton != nullptr && helpPanel.contains(helpButton->getBounds()),
+                "info layout: the reference help button stays inside its own panel");
+        require(!keyField->getBounds().intersects(
+                    findComponentWithId(editor, "info-updates-header")->getBounds()),
+                "info layout: the licence row never collides with the UPDATES header");
+
+        // The row is really wired: a typed key reaches the licensing boundary,
+        // the field is cleared (the key is never retained), and - signed out -
+        // the real flow refuses to invent a device and says so instead of
+        // contacting the server.
+        keyField->setText("PC-7QF2-3MHD-NX4T-9BKR", juce::dontSendNotification);
+        clickButton(editor, "license-activate", "info layout");
+        require(keyField->getText().isEmpty(),
+                "info layout: ACTIVATE clears the key field, which never keeps a key");
+        require(labelText(editor, "info-auth-hint", "info layout")
+                    .contains("Sign in to Music-Prod first"),
+                "info layout: activating while signed out explains what is missing");
+        casePassed();
+    }
+
+    // =================================================================
+    // 20. The redesigned CHORD page keeps every control inside its own
+    //     surface with no overlaps at every supported size, and the preset
+    //     browser steps through the real preset catalogue.
+    // =================================================================
+    {
+        ChordEngineAudioProcessor processor;
+        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("chord-layout"));
+
+        const auto checkLayout = [&editor](const juce::String& sizeName)
+        {
+            const auto context = "chord layout (" + sizeName + ")";
+            const auto hero = editor.chordHeroBounds();
+            const auto strip = editor.outputStripBounds();
+            const auto recorder = editor.recorderCardBounds();
+            require(hero.contains(recorder), context + ": the recorder well sits inside the hero");
+            require(!hero.intersects(strip), context + ": the hero and the output strip are separate");
+
+            const auto boundsOf = [&editor, &context](const char* id)
+            {
+                auto* component = findComponentWithId(editor, id);
+                require(component != nullptr && component->isVisible(),
+                        context + ": '" + id + "' must exist and be visible");
+                return component->getBounds();
+            };
+
+            for (const auto* id : { "chord-caption", "chord-name", "chord-notes" })
+            {
+                require(hero.contains(boundsOf(id)),
+                        context + ": '" + id + "' stays inside the hero");
+                require(!boundsOf(id).intersects(recorder),
+                        context + ": '" + id + "' never reaches the recorder well");
+            }
+            for (const auto* id : { "recorder-status", "recorder-count", "recorder-hint",
+                                    "recorder-action" })
+                require(recorder.contains(boundsOf(id)),
+                        context + ": '" + id + "' stays inside the recorder well");
+
+            for (const auto* id : { "transpose-label", "octave-down", "transpose-octave",
+                                    "octave-up", "transpose-whole", "transpose-lowest",
+                                    "transpose-highest", "velocity-mode-label",
+                                    "velocity-mode-selector", "fixed-velocity-label",
+                                    "fixed-velocity-slider", "fixed-velocity-value",
+                                    "internal-audio-label", "internal-audio-status",
+                                    "internal-audio-sub-label" })
+                require(strip.contains(boundsOf(id)),
+                        context + ": '" + id + "' stays inside the output strip");
+
+            // The harmony row and the keyboard sit between the two surfaces,
+            // and no two controls of the page overlap anywhere.
+            const std::array<const char*, 29> pageIds {{
+                "header-wordmark", "chord-button", "info-button",
+                "chord-caption", "chord-name", "chord-notes", "recorder-status",
+                "recorder-count", "recorder-action",
+                "chord-preset-label", "preset-counter", "preset-previous", "chord-selector",
+                "preset-next", "key-label", "key-selector", "scale-label", "scale-selector",
+                "piano-display", "transpose-label", "octave-down", "transpose-octave",
+                "octave-up", "transpose-whole", "transpose-lowest", "transpose-highest",
+                "velocity-mode-selector", "fixed-velocity-slider", "internal-audio-status" }};
+            std::vector<std::pair<juce::String, juce::Rectangle<int>>> placed;
+            for (const auto* id : pageIds)
+            {
+                const auto bounds = boundsOf(id);
+                require(editor.getLocalBounds().contains(bounds),
+                        context + ": '" + id + "' stays inside the editor");
+                for (const auto& other : placed)
+                    require(!bounds.intersects(other.second),
+                            context + ": '" + id + "' overlaps '" + other.first + "'");
+                placed.emplace_back(id, bounds);
+            }
+
+            for (const auto* id : { "chord-selector", "key-selector", "scale-selector",
+                                    "preset-previous", "preset-next", "piano-display" })
+            {
+                const auto bounds = boundsOf(id);
+                require(bounds.getY() >= hero.getBottom() && bounds.getBottom() <= strip.getY(),
+                        context + ": '" + id + "' sits between the hero and the output strip");
+            }
+
+            // Practical hit areas: no interactive control is smaller than
+            // 20 px at the smallest editor size.
+            for (const auto* id : { "chord-button", "info-button", "preset-previous", "preset-next",
+                                    "octave-down", "octave-up", "transpose-whole",
+                                    "transpose-lowest", "transpose-highest", "recorder-action",
+                                    "chord-selector", "key-selector", "scale-selector",
+                                    "velocity-mode-selector" })
+            {
+                const auto bounds = boundsOf(id);
+                require(bounds.getWidth() >= 20 && bounds.getHeight() >= 18,
+                        context + ": '" + id + "' keeps a practical hit area");
+            }
+        };
+
+        editor.setSize(800, 650);
+        pumpMessages(20);
+        checkLayout("800x650");
+        editor.setSize(ChordEngineAudioProcessor::minimumEditorWidth,
+                       ChordEngineAudioProcessor::minimumEditorHeight);
+        pumpMessages(20);
+        checkLayout("640x520");
+        editor.setSize(ChordEngineAudioProcessor::maximumEditorWidth,
+                       ChordEngineAudioProcessor::maximumEditorHeight);
+        pumpMessages(20);
+        checkLayout("1280x1040");
+
+        // ---- preset browsing through the real catalogue -----------------
+        editor.setSize(800, 650);
+        pumpMessages(20);
+        const auto presetCount = static_cast<int>(chordengine::core::ChordPresetSystem::count());
+        auto* selector = dynamic_cast<juce::ComboBox*>(findComponentWithId(editor, "chord-selector"));
+        require(selector != nullptr, "preset browser: the preset selector exists");
+        require(selector->getNumItems() == presetCount,
+                "preset browser: the selector lists every preset in the catalogue");
+
+        processor.setChordPreset(static_cast<chordengine::core::ChordPresetId>(0));
+        pumpMessages(80);
+        clickButton(editor, "preset-next", "preset browser");
+        require(static_cast<int>(processor.configurationSnapshot().preset) == 1,
+                "preset browser: NEXT selects the following preset in the Core");
+        require(selector->getSelectedId() == 2,
+                "preset browser: the selector follows the browser");
+        require(labelText(editor, "preset-counter", "preset browser")
+                    == "02 / " + juce::String(presetCount).paddedLeft('0', 2),
+                "preset browser: the counter shows the position in the catalogue");
+
+        clickButton(editor, "preset-previous", "preset browser");
+        clickButton(editor, "preset-previous", "preset browser");
+        require(static_cast<int>(processor.configurationSnapshot().preset) == presetCount - 1,
+                "preset browser: PREVIOUS wraps from the first preset to the last");
+        clickButton(editor, "preset-next", "preset browser");
+        require(static_cast<int>(processor.configurationSnapshot().preset) == 0,
+                "preset browser: NEXT wraps from the last preset to the first");
+        casePassed();
+    }
+
+    // =================================================================
+    // 21. The INFO page layout holds at every supported size: every control
+    //     inside the bed, no overlaps, the help block inside its panel and
+    //     the lifetime-licence row clear of both the help panel and the
+    //     updates column.
+    // =================================================================
+    {
+        ChordEngineAudioProcessor processor;
+        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("info-sizes"));
+        editor.setSize(800, 650);
+        pumpMessages(20);
+        clickButton(editor, "info-button", "info sizes");
+
+        const std::array<std::pair<int, int>, 3> sizes {{
+            { 800, 650 },
+            { ChordEngineAudioProcessor::minimumEditorWidth,
+              ChordEngineAudioProcessor::minimumEditorHeight },
+            { ChordEngineAudioProcessor::maximumEditorWidth,
+              ChordEngineAudioProcessor::maximumEditorHeight } }};
+        for (const auto& size : sizes)
+        {
+            editor.setSize(size.first, size.second);
+            pumpMessages(20);
+            const auto context = "info sizes (" + juce::String(size.first) + "x"
+                + juce::String(size.second) + ")";
+
+            const auto bed = editor.infoBedBounds();
+            const auto helpPanel = editor.infoHelpPanelBounds();
+            require(bed.contains(helpPanel), context + ": the help panel sits inside the INFO bed");
+
+            const std::array<const char*, 22> ids {{
+                "info-title", "info-version", "info-account-header", "info-user", "info-plus",
+                "info-license", "sign-in", "sign-out", "open-music-prod-studio",
+                "license-key-label", "license-key-editor", "license-activate", "info-auth-hint",
+                "info-updates-header", "info-current-version", "info-latest-version",
+                "info-update-status", "check-updates", "info-trial-header", "info-trial-status",
+                "info-help-title", "help-feedback" }};
+            std::vector<std::pair<juce::String, juce::Rectangle<int>>> placed;
+            for (const auto* id : ids)
+            {
+                auto* component = findComponentWithId(editor, id);
+                require(component != nullptr, context + ": '" + id + "' must exist");
+                if (!component->isVisible())
+                    continue;
+                const auto bounds = component->getBounds();
+                require(bed.contains(bounds), context + ": '" + id + "' stays inside the INFO bed");
+                const bool helpBlock = juce::String(id) == "info-help-title"
+                    || juce::String(id) == "help-feedback";
+                require(helpBlock ? helpPanel.contains(bounds) : !bounds.intersects(helpPanel),
+                        context + ": '" + id + (helpBlock ? "' stays inside the help panel"
+                                                          : "' stays clear of the help panel"));
+                for (const auto& other : placed)
+                    require(!bounds.intersects(other.second),
+                            context + ": '" + id + "' overlaps '" + other.first + "'");
+                placed.emplace_back(id, bounds);
+            }
+
+            // The licence row: field and ACTIVATE on one line, the field left
+            // of its button, the row below the account actions and above the
+            // updates section, and its result line directly beneath it.
+            const auto field = findComponentWithId(editor, "license-key-editor")->getBounds();
+            const auto activate = findButton(editor, "license-activate")->getBounds();
+            require(field.getRight() < activate.getX()
+                        && std::abs(field.getCentreY() - activate.getCentreY()) <= 1,
+                    context + ": the key field and ACTIVATE share one line");
+            const auto signIn = findButton(editor, "sign-in")->getBounds();
+            const auto updatesTop = findComponentWithId(editor, "info-updates-header")->getY();
+            const auto hint = findComponentWithId(editor, "info-auth-hint")->getBounds();
+            require(signIn.getBottom() < field.getY() && activate.getBottom() < updatesTop,
+                    context + ": the licence row sits between the account actions and UPDATES");
+            require(hint.getY() >= field.getBottom() && hint.getBottom() < updatesTop
+                        && hint.getX() == field.getX(),
+                    context + ": the activation result line sits under the key field, aligned to it");
+            require(hint.getHeight() >= juce::roundToInt(36.0f * static_cast<float>(size.first) / 800.0f),
+                    context + ": the result line has room for a multi-line message");
+            require(activate.getHeight() >= 20 && activate.getWidth() >= 60,
+                    context + ": ACTIVATE keeps a practical hit area");
+        }
+        casePassed();
+    }
+
+    // =================================================================
+    // 22. First open: the editor is fully laid out and typeset by its
+    //     constructor alone. A host that opens it at the default size never
+    //     resizes it, so nothing may depend on a later resize event.
+    // =================================================================
+    {
+        ChordEngineAudioProcessor processor;
+        ChordEngineAudioProcessorEditor editor(processor, temporaryStorageDirectory("first-open"));
+        require(editor.getWidth() == ChordEngineAudioProcessor::defaultEditorWidth
+                    && editor.getHeight() == ChordEngineAudioProcessor::defaultEditorHeight,
+                "first open: the editor opens at its default size");
+
+        const std::array<const char*, 16> ids {{
+            "header-wordmark", "chord-button", "info-button", "chord-caption", "chord-name",
+            "chord-notes", "recorder-action", "chord-selector", "preset-previous", "preset-next",
+            "key-selector", "scale-selector", "piano-display", "octave-down",
+            "velocity-mode-selector", "internal-audio-status" }};
+        std::vector<juce::Rectangle<int>> initialBounds;
+        for (const auto* id : ids)
+        {
+            auto* component = findComponentWithId(editor, id);
+            require(component != nullptr && !component->getBounds().isEmpty(),
+                    juce::String("first open: '") + id + "' is laid out by the constructor");
+            initialBounds.push_back(component->getBounds());
+        }
+
+        const auto fontOf = [&editor](const char* id)
+        {
+            auto* label = dynamic_cast<juce::Label*>(findComponentWithId(editor, id));
+            require(label != nullptr, juce::String("first open: label '") + id + "' exists");
+            return label->getFont();
+        };
+        const auto nameFont = fontOf("chord-name");
+        const auto captionFont = fontOf("chord-preset-label");
+        require(std::abs(nameFont.getHeight() - 54.0f) < 0.5f,
+                "first open: the chord name is set at its display size without a resize");
+        require(nameFont.getTypefaceName() != captionFont.getTypefaceName(),
+                "first open: the chord name uses the display face, distinct from the captions");
+        // Captions are set in the embedded Schibsted Grotesk SemiBold cut (a
+        // static face whose style is "Regular", so isBold() does not apply).
+        require(captionFont.getExtraKerningFactor() > 0.05f
+                    && captionFont.getTypefaceName().startsWith("Schibsted Grotesk"),
+                "first open: captions carry their letter-spaced Schibsted Grotesk treatment");
+        require(fontOf("footer").getTypefaceName().startsWith("Inter"),
+                "first open: interface text is set in the embedded Inter face");
+
+        // A resize cycle back to the default size must reproduce exactly the
+        // constructor's layout and type: first-open and resized states agree.
+        editor.setSize(ChordEngineAudioProcessor::minimumEditorWidth,
+                       ChordEngineAudioProcessor::minimumEditorHeight);
+        pumpMessages(20);
+        require(fontOf("chord-name").getHeight() < nameFont.getHeight(),
+                "first open: the display type scales down with a smaller editor");
+        editor.setSize(ChordEngineAudioProcessor::defaultEditorWidth,
+                       ChordEngineAudioProcessor::defaultEditorHeight);
+        pumpMessages(20);
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            require(findComponentWithId(editor, ids[index])->getBounds() == initialBounds[index],
+                    juce::String("first open: '") + ids[index]
+                        + "' has the same bounds after a resize cycle");
+        require(std::abs(fontOf("chord-name").getHeight() - nameFont.getHeight()) < 0.01f,
+                "first open: the chord name's type is identical after a resize cycle");
+        casePassed();
+    }
+
+    // 23. PACKS page and pack presets in the editor: the third page lists the
+    //     catalog, installed packs stay out of the preset menu without
+    //     Music-Prod+, a restored pack preset is still shown and played, and
+    //     the audio-output build publishes a real internal-audio switch.
+    {
+        struct CatalogTransport final : chordengine::packs::PackStoreTransport
+        {
+            int gets = 0;
+            int posts = 0;
+            void get(const juce::String&, std::size_t, Callback callback) override
+            {
+                ++gets;
+                const juce::String json = R"({"version":1,"generated_at":"2026-10-18T00:00:00Z","packs":[)"
+                    R"({"slug":"chordengine-stock","name":"ChordEngine Stock Pack","description":"","version":"1.0.0","preset_count":12,"is_stock":true,"size_bytes":1,"sha256":"0000000000000000000000000000000000000000000000000000000000000000","sort_order":0},)"
+                    R"({"slug":"chordengine-test-pack","name":"ChordEngine Test Pack","description":"","version":"1.0.0","preset_count":4,"is_stock":false,"size_bytes":1,"sha256":"1111111111111111111111111111111111111111111111111111111111111111","sort_order":1}]})";
+                chordengine::packs::StoreReply reply;
+                reply.status = 200;
+                reply.transportOk = true;
+                reply.body.append(json.toRawUTF8(), json.getNumBytesAsUTF8());
+                juce::MessageManager::callAsync([deliver = std::move(callback), reply] { deliver(reply); });
+            }
+            void postJson(const juce::String&, const juce::String&, std::size_t, Callback) override { ++posts; }
+        };
+
+        const auto storage = temporaryStorageDirectory("packs-page");
+        juce::MemoryBlock testPack;
+        juce::File(CHORDENGINE_SOURCE_DIR).getChildFile("Resources/Packs/chordengine-test-pack.json")
+            .loadFileAsData(testPack);
+        chordengine::packs::PackLibrary library(storage.getChildFile("Packs"));
+        require(library.install("chordengine-test-pack", testPack, chordengine::packs::sha256Hex(testPack))
+                    .isEmpty(),
+                "packs: the test pack installs into the editor's pack folder");
+
+        ChordEngineAudioProcessor processor(true);
+        processor.prepareToPlay(48000.0, 256);
+        auto transport = std::make_unique<CatalogTransport>();
+        auto* transportView = transport.get();
+        ChordEngineAudioProcessorEditor editor(processor, storage, nullptr, std::move(transport));
+        editor.setSize(800, 650);
+        pumpMessages(20);
+
+        require(transportView->gets == 0, "packs: the catalog is not fetched until the page opens");
+        auto* selector = dynamic_cast<juce::ComboBox*>(findComponentWithId(editor, "chord-selector"));
+        require(selector != nullptr && selector->getNumItems() == 12,
+                "packs: without Music-Prod+ the preset menu holds only the 12 stock presets");
+
+        auto* packsButton = findButton(editor, "packs-button");
+        require(packsButton != nullptr, "packs: the PACKS navigation button exists");
+        packsButton->triggerClick();
+        pumpMessages(80);
+        require(transportView->gets == 1, "packs: opening the page fetches the catalog once");
+        auto* list = findComponentWithId(editor, "packs-list");
+        require(list != nullptr && findComponentWithId(editor, "packs-viewport")->isVisible(),
+                "packs: the pack list is shown on the PACKS page");
+        require(!findComponentWithId(editor, "chord-selector")->isVisible(),
+                "packs: the CHORD controls are hidden on the PACKS page");
+        auto* listView = dynamic_cast<ChordEngineAudioProcessorEditor::PackListView*>(list);
+        require(listView != nullptr && listView->listings().size() == 2,
+                "packs: the list shows the stock pack and the test pack");
+        if (listView != nullptr && listView->listings().size() == 2)
+        {
+            require(listView->listings()[0].status == chordengine::packs::PackStatus::builtIn,
+                    "packs: the stock pack is built in");
+            require(listView->listings()[1].status == chordengine::packs::PackStatus::signInRequired
+                        && !listView->listings()[1].usable,
+                    "packs: signed out, the installed test pack is not usable");
+            listView->onAction(1); // SIGN IN starts the account link, never a download
+            pumpMessages(20);
+            require(transportView->posts == 0, "packs: no download is requested without membership");
+        }
+
+        ChordEngineAudioProcessor::PackPreset restored;
+        restored.packSlug = "chordengine-test-pack";
+        restored.packName = "ChordEngine Test Pack";
+        restored.presetName = "Test Gospel";
+        restored.preset.triggerMap.fill(7);
+        restored.preset.voicingStyle = "open";
+        require(processor.setPackPreset(restored), "packs: a project's pack preset is applied");
+        findButton(editor, "chord-button")->triggerClick();
+        pumpMessages(80);
+        require(selector->getText() == "Test Gospel",
+                "packs: a restored pack preset is named in the preset selector");
+
+        auto* toggle = findButton(editor, "internal-audio-toggle");
+        require(toggle != nullptr && toggle->isVisible(),
+                "internal audio: the audio-output build shows a real switch");
+        require(findComponentWithId(editor, "internal-audio-status") == nullptr
+                    || !findComponentWithId(editor, "internal-audio-status")->isVisible(),
+                "internal audio: the MIDI FX chip is hidden in the audio-output build");
+        toggle->triggerClick();
+        pumpMessages(20);
+        require(processor.internalAudioEnabled(), "internal audio: the switch turns internal audio on");
+        auto* sound = dynamic_cast<juce::ComboBox*>(findComponentWithId(editor, "internal-sound-selector"));
+        require(sound != nullptr && sound->getNumItems() == 3, "internal audio: Synth, Piano and Bass are offered");
+        sound->setSelectedId(3);
+        pumpMessages(20);
+        require(processor.internalSound() == ChordEngineAudioProcessor::InternalSound::bass,
+                "internal audio: the sound selector sets the sound");
+        casePassed();
+    }
+
+    constexpr int expectedCaseCount = 23;
     require(casesPassed == expectedCaseCount,
             "every functional case must run: expected " + juce::String(expectedCaseCount)
                 + ", executed " + juce::String(casesPassed));

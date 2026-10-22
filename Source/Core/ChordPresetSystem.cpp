@@ -61,11 +61,28 @@ std::optional<std::uint8_t> ChordPresetSystem::triggerCode(ChordPresetId preset,
 std::optional<ResolvedChord> ChordPresetSystem::resolve(ChordPresetId preset, int midiNote,
                                                          ScaleId scaleId, int keyIndex) noexcept
 {
-    const auto code = triggerCode(preset, midiNote);
-    const auto* scale = ScaleSystem::find(scaleId);
     const auto* presetDefinition = get(preset);
-    if (!code || scale == nullptr || !ScaleSystem::keyOffset(keyIndex))
+    if (presetDefinition == nullptr)
         return std::nullopt;
+    return resolve(presetDefinition->triggerMap, midiNote, scaleId, keyIndex);
+}
+
+bool CustomChordPreset::valid() const noexcept
+{
+    for (const auto code : triggerMap)
+        if (code > ChordPresetSystem::maximumTriggerCode)
+            return false;
+    return voicingStyle == "close" || voicingStyle == "spread" || voicingStyle == "open";
+}
+
+std::optional<ResolvedChord> ChordPresetSystem::resolve(const std::uint8_t* triggerMap, int midiNote,
+                                                         ScaleId scaleId, int keyIndex) noexcept
+{
+    const auto* scale = ScaleSystem::find(scaleId);
+    if (triggerMap == nullptr || midiNote < triggerLow || midiNote > triggerHigh
+        || scale == nullptr || !ScaleSystem::keyOffset(keyIndex))
+        return std::nullopt;
+    const auto code = std::optional<std::uint8_t>(triggerMap[static_cast<std::size_t>(midiNote - triggerLow)]);
 
     const int degree = static_cast<int>(*code % 7) + 1;
     const auto templateIndex = static_cast<std::size_t>(*code / 7);
@@ -118,7 +135,7 @@ std::optional<ResolvedChord> ChordPresetSystem::resolve(ChordPresetId preset, in
             result.intervals[result.intervalCount++] = static_cast<std::uint8_t>(interval);
     }
 
-    if (result.intervalCount < 3 || presetDefinition == nullptr)
+    if (result.intervalCount < 3)
         return std::nullopt;
     return result;
 }

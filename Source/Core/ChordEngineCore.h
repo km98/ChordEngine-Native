@@ -44,6 +44,11 @@ public:
     std::optional<NoteSet> generateChordForTrigger(int triggerNote) const noexcept;
     const CoreConfiguration& configuration() const noexcept { return configuration_; }
     bool setConfiguration(const CoreConfiguration& configuration) noexcept;
+    // While a custom preset is set it replaces configuration().preset for
+    // chord generation; nullptr returns to the built-in preset. An invalid
+    // preset is refused (false) and the current one kept. reset() keeps it.
+    bool setCustomPreset(const CustomChordPreset* preset) noexcept;
+    bool customPresetActive() const noexcept { return customPresetActive_; }
     void reset() noexcept;
     std::uint32_t activeVoiceCount() const noexcept;
     bool voiceSustained(std::uint8_t channel, std::uint8_t triggerNote) const noexcept;
@@ -70,6 +75,8 @@ private:
                           CoreResult& result) noexcept;
 
     CoreConfiguration configuration_{};
+    CustomChordPreset customPreset_{};
+    bool customPresetActive_ = false;
     std::array<std::array<Voice, 128>, 16> voices_{};
     std::array<std::array<std::uint16_t, 128>, 16> pitchOwners_{};
     bool sustainHeld_ = false;

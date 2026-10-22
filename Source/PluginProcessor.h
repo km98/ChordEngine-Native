@@ -8,14 +8,28 @@
 #include <cstdint>
 #include <limits>
 
+#include "Audio/InternalSynth.h"
 #include "Core/ChordEngineCore.h"
 #include "MIDI/MidiNoteTracker.h"
 #include "State/PluginState.h"
 
+#include <optional>
+
+// Builds with an audio output (the VST3 and the ChordEngine Instrument AU) can
+// play the generated chords through the internal synth. The MIDI FX AU has no
+// audio bus at all: Logic Pro takes no audio from a MIDI FX slot.
+#ifndef CHORDENGINE_AUDIO_OUTPUT
+ #define CHORDENGINE_AUDIO_OUTPUT 0
+#endif
+// The instrument variant starts with internal audio on; the others off.
+#ifndef CHORDENGINE_INTERNAL_AUDIO_DEFAULT_ON
+ #define CHORDENGINE_INTERNAL_AUDIO_DEFAULT_ON 0
+#endif
+
 class ChordEngineAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    ChordEngineAudioProcessor();
+    explicit ChordEngineAudioProcessor(bool withAudioOutput = CHORDENGINE_AUDIO_OUTPUT != 0);
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -28,8 +42,8 @@ public:
     const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
-    bool isMidiEffect() const override { return true; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    bool isMidiEffect() const override { return !hasAudioOutput_; }
+    double getTailLengthSeconds() const override { return hasAudioOutput_ ? 3.0 : 0.0; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
@@ -39,10 +53,46 @@ public:
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     chordengine::core::CoreConfiguration configurationSnapshot() const noexcept;
-    chordengine::state::PluginState stateSnapshot() const noexcept
+    chordengine::state::PluginState stateSnapshot() const;
+    void applyState(const chordengine::state::PluginState& state);
+
+    // ------------------------------------------------------------------
+    // Pack presets. A preset from an installed pack replaces the stock preset
+    // for chord generation until it is cleared (selecting a stock preset in
+    // the editor clears it). Message thread only; the audio thread picks the
+    // change up at its next block, lock-free.
+    // ------------------------------------------------------------------
+    using PackPreset = chordengine::state::PackPresetState;
+    bool setPackPreset(const PackPreset& preset);
+    void clearPackPreset();
+    std::optional<PackPreset> packPreset() const;
+
+    // ------------------------------------------------------------------
+    // Internal audio: the generated chords played by a built-in synth, piano
+    // or bass. Only builds with an audio output can sound.
+    // ------------------------------------------------------------------
+    using InternalSound = chordengine::state::InternalSound;
+    bool hasAudioOutput() const noexcept { return hasAudioOutput_; }
+    void setInternalAudioEnabled(bool enabled) noexcept;
+    bool internalAudioEnabled() const noexcept { return internalAudioEnabled_.load(std::memory_order_acquire); }
+    void setInternalSound(InternalSound sound) noexcept;
+    InternalSound internalSound() const noexcept
     {
-        return { configurationSnapshot() };
+        return static_cast<InternalSound>(internalSound_.load(std::memory_order_acquire));
     }
+    // The grid a recorded take is quantized to when it is exported (dragged
+    // out or written to a file); none exports it exactly as played.
+    using RecordQuantize = chordengine::midi::TakeQuantize;
+    void setRecordQuantize(RecordQuantize grid) noexcept;
+    RecordQuantize recordQuantize() const noexcept
+    {
+        return static_cast<RecordQuantize>(recordQuantize_.load(std::memory_order_acquire));
+    }
+    // FOLLOW DAW RECORD: when on, the recorder arms itself when the host
+    // starts recording and stores the take when it stops (see
+    // followHostRecording). Off by default; saved with the host state.
+    void setFollowHostRecord(bool enabled) noexcept;
+    bool followHostRecord() const noexcept { return followHostRecord_.load(std::memory_order_acquire); }
     bool setConfiguration(const chordengine::core::CoreConfiguration& configuration) noexcept;
     bool setKeyIndex(int keyIndex) noexcept;
     bool setScale(chordengine::core::ScaleId scale) noexcept;
@@ -196,12 +246,21 @@ private:
         std::size_t eventCount = 0;
         double tempoBpm = 120.0;
         int noteCount = 0;
+        chordengine::midi::TakeGridAnchor anchor {};
+        int timeSignatureNumerator = 4;
+        int timeSignatureDenominator = 4;
     };
     static constexpr std::size_t recorderEventCapacity = 4096;
     void recordGeneratedEvent(const chordengine::midi::NoteEvent& event) noexcept;
     void resetRecorderCapture() noexcept;
     bool finalizeRecorderTake() noexcept;
     void resetRecorderForPlaybackBoundary() noexcept;
+    void followHostRecording() noexcept;
+    void renderInternalAudio(juce::AudioBuffer<float>& audio, const juce::MidiBuffer& generated) noexcept;
+    // Audio thread only: the host transport's record state last block, and
+    // whether the current take was armed by it (see followHostRecording).
+    bool hostWasRecording_ = false;
+    bool hostArmedTake_ = false;
     void acquireRecorderCapture() noexcept;
     void releaseRecorderCapture() noexcept;
 
@@ -218,6 +277,25 @@ private:
     juce::AbstractFifo uiMidiFifo_ { uiMidiQueueCapacity };
     std::array<UiMidiEvent, uiMidiQueueCapacity> uiMidiEvents_ {};
     chordengine::core::ChordEngineCore core_;
+    const bool hasAudioOutput_;
+
+    // Pack preset hand-off: the message thread writes pendingCustomPreset_
+    // under customPresetAccess_ and bumps the generation; the audio thread
+    // copies it only if it can take the flag without waiting.
+    mutable std::atomic_flag customPresetAccess_ = ATOMIC_FLAG_INIT;
+    chordengine::core::CustomChordPreset pendingCustomPreset_ {};
+    bool pendingCustomPresetActive_ = false;
+    std::atomic<std::uint32_t> customPresetGeneration_ { 0 };
+    std::uint32_t appliedCustomPresetGeneration_ = 0;
+    void applyCustomPresetFromAudioThread() noexcept;
+    // What the editor and the host state see; message thread / state calls.
+    mutable juce::SpinLock packPresetLock_;
+    std::optional<PackPreset> packPresetSelection_;
+
+    chordengine::audio::InternalSynth internalSynth_;
+    std::atomic<bool> internalAudioEnabled_ { CHORDENGINE_INTERNAL_AUDIO_DEFAULT_ON != 0 };
+    std::atomic<std::uint8_t> internalSound_ { 0 };
+    bool internalAudioWasEnabled_ = false; // audio thread
     static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
                   "The MIDI-thread configuration snapshot must be lock-free");
     static_assert(std::atomic<bool>::is_always_lock_free,
@@ -253,6 +331,12 @@ private:
     std::atomic<std::uint64_t> processedSampleCount_ { 0 };
     double recorderSampleRate_ = 44100.0;
     double recorderTempoBpm_ = 120.0;
+    chordengine::midi::TakeGridAnchor recorderAnchor_ {};
+    int recorderTimeSignatureNumerator_ = 4;
+    int recorderTimeSignatureDenominator_ = 4;
+    void captureRecorderGridAnchor(const juce::AudioPlayHead::PositionInfo& position, int sampleOffset) noexcept;
+    std::atomic<std::uint8_t> recordQuantize_ { 0 };
+    std::atomic<bool> followHostRecord_ { false };
     bool recorderOverflow_ = false;
     mutable std::atomic_flag recorderTakeAccess_ = ATOMIC_FLAG_INIT;
     chordengine::midi::MidiNoteTracker tracker_;

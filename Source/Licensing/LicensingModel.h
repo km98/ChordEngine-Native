@@ -15,6 +15,13 @@ namespace chordengine::licensing
 //
 // Every network action is requested through the hooks below and performed
 // by LicensingBoundary, never here and never on the audio thread.
+//
+// THE ACCESS DECISION
+//   `snapshot().licensed` is derived from the server's product-scoped
+//   `plugin_entitled` field, never from the product-agnostic `subscribed`
+//   membership flag. A licence key grants it on its own, with no
+//   subscription. A missing, malformed or stale answer removes access; it
+//   can never grant it.
 // =====================================================================
 class LicensingModel
 {
@@ -46,11 +53,17 @@ public:
     // The approval URL is handed to the browser exactly once.
     void clearVerificationUrl() noexcept { snapshot_.verificationUrl.clear(); }
 
+    // ---- lifetime-licence activation (reference INFO-page key field) --
+    // The customer's typed key is forwarded; the KEPT state comes from the
+    // server's `entitlements` answer, never from this reply.
+    void activateLicense(const juce::String& licenseKey);
+    void onActivateLicenseReply(int status, const juce::var& response, std::int64_t nowMs);
+
     // ---- token handling (the value never leaves this class) ----------
     void loadToken(const juce::String& token, const juce::String& user,
-                   bool subscribed, std::int64_t verifiedAtMs);
+                   const CachedEntitlement& cached, std::int64_t verifiedAtMs);
     const juce::String& token() const noexcept { return token_; }
-    bool plusCached() const noexcept { return snapshot_.plusCached; }
+    const CachedEntitlement& cached() const noexcept { return snapshot_.cached; }
     std::int64_t verifiedAtMs() const noexcept { return snapshot_.verifiedAtMs; }
     const juce::String& user() const noexcept { return snapshot_.user; }
     bool consumePersistenceDirty() noexcept;
@@ -70,6 +83,7 @@ public:
     std::function<void(const juce::String& deviceCode)> requestLinkPoll;
     std::function<void(const juce::String& token)> requestEntitlements;
     std::function<void(const juce::String& token)> requestLogout;
+    std::function<void(const juce::String& licenseKey)> requestLicenseActivation;
     std::function<void()> requestUpdateCheck;
 
 private:

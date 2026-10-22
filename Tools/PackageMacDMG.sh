@@ -3,10 +3,11 @@
 # PackageMacDMG.sh
 #
 # Builds the customer-facing macOS installer DMG for the ChordEngine native
-# (JUCE) build. It carries BOTH plugin formats in a single installer:
+# (JUCE) build. It carries every plugin bundle in a single installer:
 #
-#     /Library/Audio/Plug-Ins/Components/ChordEngine.component   (AU, aumi)
-#     /Library/Audio/Plug-Ins/VST3/ChordEngine.vst3              (VST3, Fx)
+#     /Library/Audio/Plug-Ins/Components/ChordEngine.component            (AU MIDI FX, aumi)
+#     /Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component (AU instrument, aumu)
+#     /Library/Audio/Plug-Ins/VST3/ChordEngine.vst3                       (VST3, Instrument)
 #
 # The payload is taken from the already-built universal Release artefacts;
 # this script never builds them. It mirrors the conventions proven by the
@@ -44,9 +45,15 @@ OUT_DIR="${CHORDENGINE_DIST_DIR:-$REPO_ROOT/Build/ReleaseArtifacts}"
 
 AU_SRC="$BUILD_DIR/ChordEngineAU_artefacts/Release/AU/ChordEngine.component"
 VST3_SRC="$BUILD_DIR/ChordEngineVST3_artefacts/Release/VST3/ChordEngine.vst3"
+INST_SRC="$BUILD_DIR/ChordEngineInstrumentAU_artefacts/Release/AU/ChordEngine Instrument.component"
+INST_BIN="Contents/MacOS/ChordEngine Instrument"
 
 PRODUCT="ChordEngine"
-VERSION="0.1.0"
+# The version packaged by default. It must equal the version the bundles were
+# built with - the payload identity gate below refuses a mismatch - so it
+# tracks CHORDENGINE_VERSION in CMakeLists.txt. Override per release with
+# --version, and never reuse a version whose DMG/PKG already exists here.
+VERSION="0.5.0"
 PKG_IDENTIFIER="com.musicprod.chordengine.pkg"
 
 APP_ID="Developer ID Application: Martin Kadziolka (3A4R5EKM7V)"
@@ -97,6 +104,7 @@ echo "notarize    : $DO_NOTARIZE (profile: $NOTARY_PROFILE)"
 
 [ -d "$AU_SRC" ]  || die "AU bundle not found: $AU_SRC"
 [ -d "$VST3_SRC" ] || die "VST3 bundle not found: $VST3_SRC"
+[ -d "$INST_SRC" ] || die "Instrument AU bundle not found: $INST_SRC"
 
 [ -d "$OUT_DIR" ] || mkdir -p "$OUT_DIR"
 for out in "$OUT_DIR/$DMG_NAME" "$OUT_DIR/$PKG_NAME"; do
@@ -116,12 +124,20 @@ AU_BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
 VST3_VER="$(sed -n 's/^[[:space:]]*"Version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
             "$VST3_SRC/Contents/Resources/moduleinfo.json" 2>/dev/null | head -1)"
 [ -n "$VST3_VER" ] || VST3_VER='?'
+INST_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            "$INST_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
+INST_BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$INST_SRC/Contents/Info.plist" 2>/dev/null || echo '?')"
 echo "AU   version=$AU_VER bundle-id=$AU_BID"
+echo "Inst version=$INST_VER bundle-id=$INST_BID"
 echo "VST3 version=$VST3_VER"
 [ "$AU_VER" = "$VERSION" ]   || die "AU version $AU_VER != requested $VERSION (rebuild first)"
 [ "$VST3_VER" = "$VERSION" ] || die "VST3 version $VST3_VER != requested $VERSION (rebuild first)"
+[ "$INST_VER" = "$VERSION" ] || die "Instrument AU version $INST_VER != requested $VERSION (rebuild first)"
+[ "$INST_BID" = "com.musicprod.chordengine.instrument" ] || die "unexpected Instrument AU bundle id: $INST_BID"
 
-for bin in "$AU_SRC/Contents/MacOS/ChordEngine" "$VST3_SRC/Contents/MacOS/ChordEngine"; do
+for bin in "$AU_SRC/Contents/MacOS/ChordEngine" "$VST3_SRC/Contents/MacOS/ChordEngine" \
+           "$INST_SRC/$INST_BIN"; do
     archs="$(lipo -archs "$bin" 2>/dev/null || true)"
     echo "archs: $(basename "$(dirname "$(dirname "$bin")")") -> $archs"
     case "$archs" in
@@ -165,6 +181,7 @@ chmod 0755 "$PKGROOT" \
 # `ditto` preserves modes, symlinks and xattrs without following anything odd.
 ditto "$AU_SRC"   "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine.component"
 ditto "$VST3_SRC" "$PKGROOT/Library/Audio/Plug-Ins/VST3/ChordEngine.vst3"
+ditto "$INST_SRC" "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component"
 
 for d in "$PKGROOT" "$PKGROOT/Library" "$PKGROOT/Library/Audio" \
          "$PKGROOT/Library/Audio/Plug-Ins" \
@@ -180,6 +197,7 @@ step "Sign bundles (Developer ID Application, hardened runtime, timestamp)"
 SIGNED_BUNDLES=(
     "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine.component"
     "$PKGROOT/Library/Audio/Plug-Ins/VST3/ChordEngine.vst3"
+    "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component"
 )
 for bundle in "${SIGNED_BUNDLES[@]}"; do
     codesign --force --timestamp --options runtime --sign "$APP_ID" "$bundle"
@@ -205,12 +223,13 @@ for bundle in "${SIGNED_BUNDLES[@]}"; do
     [[ "$info" == *"TeamIdentifier=3A4R5EKM7V"* ]] \
         || die "unexpected TeamIdentifier on $bundle"
 done
-echo "  both bundles: Developer ID Application signature + hardened runtime verified"
+echo "  all bundles: Developer ID Application signature + hardened runtime verified"
 
 # Verify the signed bundles still depend only on Apple libraries, so hardened
 # runtime library validation cannot block loading in a host.
 for bin in "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine.component/Contents/MacOS/ChordEngine" \
-           "$PKGROOT/Library/Audio/Plug-Ins/VST3/ChordEngine.vst3/Contents/MacOS/ChordEngine"; do
+           "$PKGROOT/Library/Audio/Plug-Ins/VST3/ChordEngine.vst3/Contents/MacOS/ChordEngine" \
+           "$PKGROOT/Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component/$INST_BIN"; do
     # otool -L prints a non-indented header per architecture; only the
     # indented lines are real load-command dependencies.
     bad="$(otool -L "$bin" | grep -E '^[[:space:]]' | sed 's/^[[:space:]]*//' \
@@ -247,6 +266,7 @@ expect_line "./Library/Audio/Plug-Ins/Components${BOM_TAB}40755${BOM_TAB}0${BOM_
 expect_line "./Library/Audio/Plug-Ins/VST3${BOM_TAB}40755${BOM_TAB}0${BOM_TAB}wheel"
 expect_line "./Library/Audio/Plug-Ins/Components/ChordEngine.component${BOM_TAB}40755${BOM_TAB}0${BOM_TAB}wheel"
 expect_line "./Library/Audio/Plug-Ins/VST3/ChordEngine.vst3${BOM_TAB}40755${BOM_TAB}0${BOM_TAB}wheel"
+expect_line "./Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component${BOM_TAB}40755${BOM_TAB}0${BOM_TAB}wheel"
 
 BAD_MODE="$(printf '%s\n' "$BOM_LINES" | \
             grep -E '(^|[[:space:]])[0-9]*700($|[[:space:]])' || true)"
@@ -305,10 +325,14 @@ $PRODUCT $VERSION for macOS
 2. Follow the macOS Installer steps.
 3. Restart or refresh your DAW if necessary so the plugins are discovered.
 
-The installer places both plugin formats:
+The installer places every plugin:
 
-  Audio Unit (AU)  ->  /Library/Audio/Plug-Ins/Components/$PRODUCT.component
-  VST3             ->  /Library/Audio/Plug-Ins/VST3/$PRODUCT.vst3
+  Audio Unit, MIDI FX     ->  /Library/Audio/Plug-Ins/Components/$PRODUCT.component
+  Audio Unit, instrument  ->  /Library/Audio/Plug-Ins/Components/$PRODUCT Instrument.component
+  VST3                    ->  /Library/Audio/Plug-Ins/VST3/$PRODUCT.vst3
+
+In Logic Pro, insert "ChordEngine" in a MIDI FX slot to drive any instrument,
+or "ChordEngine Instrument" as the instrument to hear its built-in sounds.
 
 Universal binary: Apple Silicon (arm64) + Intel (x86_64).
 $PACKAGE_STATUS
@@ -390,7 +414,8 @@ fi
 PAYLOAD="$TMP/payload-check"
 pkgutil --expand-full "$MOUNTED_PKG" "$PAYLOAD" >/dev/null
 for rel in "Library/Audio/Plug-Ins/Components/ChordEngine.component/Contents/MacOS/ChordEngine" \
-           "Library/Audio/Plug-Ins/VST3/ChordEngine.vst3/Contents/MacOS/ChordEngine"; do
+           "Library/Audio/Plug-Ins/VST3/ChordEngine.vst3/Contents/MacOS/ChordEngine" \
+           "Library/Audio/Plug-Ins/Components/ChordEngine Instrument.component/$INST_BIN"; do
     [ -f "$PAYLOAD/Payload/$rel" ] || die "payload missing: $rel"
     archs="$(lipo -archs "$PAYLOAD/Payload/$rel")"
     case "$archs" in
@@ -398,7 +423,7 @@ for rel in "Library/Audio/Plug-Ins/Components/ChordEngine.component/Contents/Mac
         *) die "payload not universal: $rel ($archs)" ;;
     esac
 done
-echo "  payload contains both universal plugin formats"
+echo "  payload contains all three universal plugin bundles"
 
 # ------------------------------------------------------------------ report
 step "Done"

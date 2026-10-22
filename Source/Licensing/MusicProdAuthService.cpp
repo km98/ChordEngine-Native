@@ -31,12 +31,23 @@ MusicProdAuthService::~MusicProdAuthService()
 }
 
 void MusicProdAuthService::start(const juce::String& deviceName,
-                                 const juce::String& pluginVersion, Callback callback)
+                                 const juce::String& pluginVersion,
+                                 const juce::String& product,
+                                 const juce::String& deviceId, Callback callback)
 {
+    // EXACT wire shape of vyre-plugin-auth `start`: `product` is the explicit
+    // allowlisted slug (so the token's product never depends on the legacy
+    // device_name fallback), and `device_id` is the opaque per-installation
+    // id the device code stores and the token inherits - which is what later
+    // lets the entitlement check recognise a licence slot held by THIS
+    // computer.
     juce::DynamicObject::Ptr body = new juce::DynamicObject();
     body->setProperty("action", "start");
     body->setProperty("device_name", deviceName);
     body->setProperty("plugin_version", pluginVersion);
+    body->setProperty("product", product);
+    if (deviceId.isNotEmpty())
+        body->setProperty("device_id", deviceId);
     post(juce::var(body.get()), std::move(callback));
 }
 
@@ -61,6 +72,34 @@ void MusicProdAuthService::logout(const juce::String& token, Callback callback)
     juce::DynamicObject::Ptr body = new juce::DynamicObject();
     body->setProperty("action", "logout");
     body->setProperty("token", token);
+    post(juce::var(body.get()), std::move(callback));
+}
+
+void MusicProdAuthService::activateLicense(const juce::String& token,
+                                           const juce::String& licenseKey,
+                                           const juce::String& deviceId,
+                                           const juce::String& deviceLabel,
+                                           const juce::String& platform,
+                                           const juce::String& pluginVersion,
+                                           Callback callback)
+{
+    // EXACT wire shape of `activate-license` (vyre-plugin-auth/license.ts).
+    // `device_id` is REQUIRED by the endpoint: the operation consumes one of
+    // the licence's three slots, so a request that does not name the device
+    // is refused as a structural error rather than treated as a verdict on
+    // the customer's key. The key is sent and then dropped - the server binds
+    // it to the account, and nothing here persists it.
+    juce::DynamicObject::Ptr body = new juce::DynamicObject();
+    body->setProperty("action", "activate-license");
+    body->setProperty("token", token);
+    body->setProperty("license_key", licenseKey);
+    body->setProperty("device_id", deviceId);
+    if (deviceLabel.isNotEmpty())
+        body->setProperty("device_label", deviceLabel);
+    if (platform.isNotEmpty())
+        body->setProperty("platform", platform);
+    if (pluginVersion.isNotEmpty())
+        body->setProperty("plugin_version", pluginVersion);
     post(juce::var(body.get()), std::move(callback));
 }
 

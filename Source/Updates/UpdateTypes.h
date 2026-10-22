@@ -40,8 +40,8 @@ inline constexpr std::size_t maxResponseBytes = 256u * 1024u;
 
 // The build version of the translation unit that includes this header, taken
 // from the build metadata the plugin targets already generate (the same value
-// JucePlugin_VersionString). Development builds report 0.1.0; nothing here
-// hardcodes the reference product's 0.4.0.
+// JucePlugin_VersionString). The 0.5.0 release candidate reports 0.5.0;
+// nothing here hardcodes the reference product's 0.4.0.
 //
 // The update CLIENT never relies on this constant itself: it is told its build
 // version when it is constructed (see UpdateService), so the value always comes

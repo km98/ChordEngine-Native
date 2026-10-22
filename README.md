@@ -1,15 +1,15 @@
-# ChordEngine Native (development build)
+# ChordEngine Native
 
-Code-driven JUCE/CMake rewrite workspace. Development version **0.1.0**. The native MIDI engine and customer-facing JUCE GUI are implemented for development testing; this is not a release build and does not claim exact visual parity with HISE or the embedded FL GUI.
+Code-driven JUCE/CMake rewrite workspace. Release candidate **0.5.0** — the first UNIVERSAL release: one product, one implementation and one entitlement, replacing the legacy ChordEngine FL 0.4.0 build. The native MIDI engine and customer-facing JUCE GUI are implemented; FL Studio and Logic Pro acceptance testing of this candidate is still outstanding, and the candidate is unsigned, unpackaged and unpublished.
 
 - Product identity: **ChordEngine**, **Music-Prod**.
-- macOS formats: AU MIDI Processor (`aumi`) + VST3.
-- Windows format: VST3.
-- Plugin code is shared between targets; AU/VST3 compatibility IDs remain distinct as documented in CMake.
-- Native JUCE editor reproduces the reference product layout and terminology: two-tone ChordEngine wordmark with CHORD/INFO navigation, chord well with live readout and C4 preview, Key/Scale/Chord Preset row above a **clickable** C2–C7 piano, TRANSPOSE cluster (WHOLE/LOWEST/HIGHEST, −2…+2 octave, drawn −/+ steppers), VELOCITY MODE and FIXED VELOCITY cards, MIDI recorder with three draggable takes, INTERNAL AUDIO card, Music-Prod wordmark slot, `Chord Engine v0.1.0` footer, and an INFO page (account/trial/license/updates structure, Help & Feedback). The layout is painted in the reference 800×650 design space and mapped through one uniform scale, so it stays faithful from 640×520 to 1280×1040.
+- macOS formats: AU MIDI Processor (`aumi`, manufacturer `Musc`, subtype `Cefl`, bundle `com.musicprod.chordengine`) + VST3 (manufacturer `Musc`, plug-in code `Cefl`, bundle `com.musicprod.chordenginefl`, class category `Instrument`).
+- Windows format: VST3 (the same legacy-compatible identity).
+- The AU and the VST3 share the product's `Musc`/`Cefl` code pair: the VST3 class id is derived from it (`ABCDEF019182FAEB4D7573634365666C`), which is what keeps an existing FL Studio project pointing at this plugin. Each format keeps its own bundle identifier, and both are frozen from the first public release on.
+- Native JUCE editor (0.5.0 editorial redesign, see [Docs/UI_REDESIGN_0.5.0.md](Docs/UI_REDESIGN_0.5.0.md)): one open graphite page with ivory type and a sand accent; a quiet wordmark with CHORD/INFO text navigation; the chord name set large in a system serif above the notes as a typeset sequence, with the MIDI recorder (three draggable takes) as a column beside it; an underline-field configuration line (chord preset with previous/next and catalogue position, Key, Scale) above an unframed, **clickable** C2–C7 piano; one secondary line for TRANSPOSE (WHOLE/LOWEST/HIGHEST, −2…+2 octave), VELOCITY MODE / FIXED VELOCITY and INTERNAL AUDIO; the Music-Prod mark and `Chord Engine v<build version>` at the foot; and an INFO page laid out as labelled sections (account, lifetime licence key, updates, trial, Help & Feedback). Geometry is drawn in an 800×650 design space and scaled uniformly from 640×520 to 1280×1040, with type scaling more gently so small editors stay legible and large ones gain air.
 - Every visible interactive control is real. The piano keys push real notes into the processor's Core trigger path, the fixed-velocity slider is a real interactive `juce::Slider`, and the recorder/navigation/INFO controls are bound to real actions. No painted fake sliders, toggles, buttons or keyboard keys exist.
 - Internal audio is **not** implemented: the plugin is a MIDI effect with no audio bus, so the reference internal-synth switch cannot work without changing the AU/VST3 architecture. The card keeps the reference geometry and caption but publishes the capability as unavailable (`N/A` chip with the reason on screen and in a tooltip); the limitation is documented rather than faked. Account/update/licensing and the trial clock are real and connected (see below).
-- AU MIDI FX recognition, trigger-note chord generation, and downstream MIDI routing have been manually verified in Logic Pro on a clean second Mac. Source-derived vectors remain separate non-host evidence.
+- AU MIDI FX recognition, trigger-note chord generation, and downstream MIDI routing were manually verified in Logic Pro on a clean second Mac for the earlier milestone build; the 0.5.0 candidate itself is **not** host-verified yet (see the remaining checklist in [Docs/RELEASE_0.5.0.md](Docs/RELEASE_0.5.0.md)). Source-derived vectors remain separate non-host evidence.
 - ChordEngineCore remains independent of JUCE. HISE, HISE-generated code, and Projucer are not build dependencies.
 
 ## Repository layout
@@ -21,7 +21,7 @@ Code-driven JUCE/CMake rewrite workspace. Development version **0.1.0**. The nat
 - `Source/Licensing/` — inert boundary; no credentials, endpoints, or invented trial rules.
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*` — JUCE processor and native scalable plug-in editor.
 - `Tests/` — source-derived golden vectors plus core, MIDI tracker, processor integration, GUI state, and recorder/export regression tests.
-- `Tools/GuiSnapshot.cpp` — development-only renderer that draws the real editor to PNG (800×650, 640×520, 1280×1040, live trigger, INFO page) for layout review without a DAW host. Built only with `-DBUILD_TESTING=ON`; never installed or shipped.
+- `Tools/GuiSnapshot.cpp` — development-only renderer that draws the real editor to PNG (CHORD page at 800×650, 640×520 and 1280×1040; live trigger; stored recorder take; INFO page at all three sizes and after a signed-out ACTIVATE) for layout review without a DAW host, using throwaway licensing state and the offline update transport. Built only with `-DBUILD_TESTING=ON`; never installed or shipped.
 - `Docs/` — source-backed behavior inventory, requirements, test strategy, and SideChainer toolchain findings.
 - `Resources/` — reserved for native resources; no legacy resource bundle copied.
 - `Build/` — local CMake output; not source-controlled/release output.
@@ -179,9 +179,13 @@ service, anonymously, from a self-contained module in `Source/Updates/` that is
   null`, `decision: upToDate`) renders as *No published release* on both the
   Latest and Status rows — it is never shown as "Up to date" and no version is
   ever fabricated.
-- **Actual build version.** What the plugin sends and what the UI shows both
-  come from the build metadata (`JucePlugin_VersionString`, `0.1.0` in this
-  development build); the updater and the UI never use `0.4.0`. The only `0.4.0` in the client is the licensing reference constant `productVersion`, sent to the auth service (see `Source/Licensing/LicensingTypes.h`).
+- **Actual build version.** What the plugin sends, what the UI shows and what
+  the account bridge reports as `plugin_version` all come from the build
+  metadata (`JucePlugin_VersionString`, `0.5.0` for this release candidate);
+  none of them uses the reference product's `0.4.0`. All of them derive from one
+  CMake variable (`CHORDENGINE_VERSION`), and
+  `Source/Licensing/LicensingTypes.h` refuses to compile when the telemetry
+  version and the compiled plug-in version disagree.
 - **Threading.** Exactly one background worker (`juce::ThreadPool { 1 }`),
   results delivered with `MessageManager::callAsync`, the audio/MIDI thread
   never touches the module, and `processBlock` is asserted to contain no update
@@ -198,8 +202,13 @@ service, anonymously, from a self-contained module in `Source/Updates/` that is
   downloads and never calls `/downloads/authorize`; installing an update stays
   with Music-Prod Studio.
 
-`CTest` is **6/6** at this revision (core, reference, 38/38 source-derived
-vectors, 17/17 processor integration, 18/18 functional, 16/16 update client).
+`CTest` is **11/11** at the 0.5.0 release candidate (core, reference, 38/38
+source-derived vectors, 17/17 processor integration, 18/18 functional, 16/16
+update client, the licensing contract and route-switch suites, state
+persistence, the head-less host-boundary probe and the release-metadata gate -
+see [Docs/RELEASE_0.5.0.md](Docs/RELEASE_0.5.0.md)). The licensing and metadata
+suites use local fixtures only, and the release-metadata gate refuses a
+candidate whose identity, category or version has drifted.
 The update transport is injected in tests and the shipped plugin's own object
 files are checked to reference only the real HTTP transport, so no automated
 run touches the live service.

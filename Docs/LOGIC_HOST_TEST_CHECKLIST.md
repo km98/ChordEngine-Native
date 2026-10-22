@@ -1,4 +1,4 @@
-# Logic Pro Manual Host-Test Checklist (ChordEngine MIDI FX 0.1.0)
+# Logic Pro Manual Host-Test Checklist (ChordEngine MIDI FX 0.5.0)
 
 Status: **NOT HOST-VERIFIED.** Nothing in this file has been run in Logic Pro.
 Every step is manual. Do not automate Logic and do not script the DAW.
@@ -7,10 +7,10 @@ Every step is manual. Do not automate Logic and do not script the DAW.
 
 | Format | Installed path | Identity |
 | --- | --- | --- |
-| AU | `~/Library/Audio/Plug-Ins/Components/ChordEngine.component` | `aumi` / `Abcd` / `Abcd`, bundle `com.myCompany.product` |
+| AU | `~/Library/Audio/Plug-Ins/Components/ChordEngine.component` | `aumi` / `Musc` / `Cefl`, bundle `com.musicprod.chordengine` |
 | VST3 | `~/Library/Audio/Plug-Ins/VST3/ChordEngine.vst3` | bundle `com.musicprod.chordenginefl`, `Musc` / `Cefl` |
 
-Both are universal `x86_64 arm64`, version `0.1.0`, minimum macOS 12.0.
+Both are universal `x86_64 arm64`, version `0.5.0`, minimum macOS 12.0.
 Before testing, confirm the installed binary hashes match the current Release build.
 
 ## Preparation
@@ -67,7 +67,7 @@ Before testing, confirm the installed binary hashes match the current Release bu
 
 ## F. Licensing, update and INFO
 
-- [ ] F1. The INFO page shows `CHORD ENGINE`, the version, and the ACCOUNT, UPDATES, TRIAL and HELP & FEEDBACK sections.
+- [ ] F1. The INFO page shows `CHORD ENGINE`, the version `0.5.0`, and the ACCOUNT, UPDATES, TRIAL and HELP & FEEDBACK sections.
 - [ ] F2. Update status is shown honestly. The live endpoint currently reports "No published release".
 - [ ] F3. The trial counts down only after the first real chord is generated.
 - [ ] F4. Sign-in (device-code flow) completes end to end, if the licensing backend allowlists ChordEngine. This is unverified; see the release-gate report.

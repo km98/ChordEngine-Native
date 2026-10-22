@@ -13,7 +13,7 @@ other DAW. Every step below is performed by a human, by hand.
 - Target: a **second Mac that has no ChordEngine installed** (no AU, no VST3, no
   HISE-built plugin anywhere in its plug-in folders).
 - Test build: the current GUI milestone archive `Build/TestArtifacts/ChordEngine-Native-macOS-AU-GUI-Test.zip` (see `Build/TestArtifacts/MANIFEST.txt` for size and SHA-256 — verify before use).
-- Development version 0.1.0, Music-Prod / ChordEngine, `aumi` MIDI Processor,
+- Release-candidate version 0.5.0, Music-Prod / ChordEngine, `aumi` MIDI Processor,
   MIDI in/out, no synth.
 - Logic Pro (or Logic Pro trial) with a **downstream software instrument** available
   (any stock instrument such as Alchemy, Sampler, or the built-in Test Oscillator's

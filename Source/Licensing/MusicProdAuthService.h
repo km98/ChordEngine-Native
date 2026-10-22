@@ -21,10 +21,15 @@ public:
     ~MusicProdAuthService() override;
 
     void start(const juce::String& deviceName, const juce::String& pluginVersion,
+               const juce::String& product, const juce::String& deviceId,
                Callback callback) override;
     void poll(const juce::String& deviceCode, Callback callback) override;
     void entitlements(const juce::String& token, Callback callback) override;
     void logout(const juce::String& token, Callback callback) override;
+    void activateLicense(const juce::String& token, const juce::String& licenseKey,
+                        const juce::String& deviceId, const juce::String& deviceLabel,
+                        const juce::String& platform, const juce::String& pluginVersion,
+                        Callback callback) override;
 
 private:
     void post(const juce::var& body, Callback callback);

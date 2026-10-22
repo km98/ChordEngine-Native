@@ -62,5 +62,22 @@ public:
     static std::optional<std::uint8_t> triggerCode(ChordPresetId preset, int midiNote) noexcept;
     static std::optional<ResolvedChord> resolve(ChordPresetId preset, int midiNote,
                                                 ScaleId scale, int keyIndex) noexcept;
+    // The same resolution for a trigger map that is not built in (a preset
+    // from an installed pack). `triggerMap` holds triggerCount codes.
+    static std::optional<ResolvedChord> resolve(const std::uint8_t* triggerMap, int midiNote,
+                                                ScaleId scale, int keyIndex) noexcept;
+    // Highest valid trigger code: degree (code % 7) and template (code / 7).
+    static constexpr std::uint8_t maximumTriggerCode = 7 * templateCount - 1;
+};
+
+// A preset defined outside the binary (an installed pack preset): its own
+// trigger map and one of the built-in voicing styles.
+struct CustomChordPreset
+{
+    std::array<std::uint8_t, ChordPresetSystem::triggerCount> triggerMap{};
+    std::string_view voicingStyle = "close";
+
+    // True when every code is in range and the voicing is close/spread/open.
+    bool valid() const noexcept;
 };
 } // namespace chordengine::core

@@ -1,6 +1,6 @@
 # ChordEngine Native — implementation requirements
 
-**Version:** development scaffold `0.1.0` (not a customer release)
+**Version:** first universal release `0.5.0` — release candidate, not yet a customer release
 
 This is a code-driven JUCE/CMake product. HISE is a read-only behavioral reference only; neither HISE nor Projucer may be required to configure/build the native project. The complete evidence inventory and confidence labels are in [REFERENCE_FUNCTIONAL_INVENTORY.md](REFERENCE_FUNCTIONAL_INVENTORY.md).
 
@@ -12,7 +12,7 @@ This is a code-driven JUCE/CMake product. HISE is a read-only behavioral referen
 
 - Customer-facing product: **ChordEngine**.
 - Manufacturer displayed in plugin metadata: **Music-Prod**.
-- macOS AU: MIDI Processor (`aumi`), bundle ID `com.myCompany.product`, manufacturer code `Abcd`, subtype `Abcd`.
+- macOS AU: MIDI Processor (`aumi`), bundle ID `com.musicprod.chordengine`, manufacturer code `Musc`, subtype `Cefl`.
 - VST3 on macOS and Windows: bundle ID `com.musicprod.chordenginefl`, manufacturer code `Musc`, plugin code `Cefl`.
 - Preserve the identifiers above and any verified licensing product/tenant identifiers; do not derive new identifiers from the name or development version.
 - User-facing name has no “FL” suffix.
@@ -67,7 +67,7 @@ Required reference collection: capture a disposable host session using an event 
 
 - CMake configures with pinned JUCE 9.0.3 and no HISE/Projucer dependency. **Met on this macOS host.**
 - macOS builds AU and VST3 locally (arm64 + x86_64), with no Developer ID/certificate signing, install, or copy-to-host-system step; Windows CMake condition builds VST3 only. **Build and static architecture/metadata checks passed; the Apple linker may add an ad-hoc Mach-O signature. No DAW discovery/routing test has been performed.** Windows configuration remains untested on Windows.
-- AU static metadata is `aumi`, `Abcd/Abcd`, bundle `com.myCompany.product`; VST3 metadata is `Musc/Cefl`, bundle `com.musicprod.chordenginefl`.
-- Both identify as ChordEngine / Music-Prod, development version 0.1.0; accept and emit MIDI, are not synths; do not generate audio intentionally. **Static configuration/build verified; MIDI-through behavior and silent audio have not been exercised in a DAW host.**
+- AU static metadata is `aumi`, `Musc/Cefl`, bundle `com.musicprod.chordengine`; VST3 metadata is `Musc/Cefl`, bundle `com.musicprod.chordenginefl`, class category `Instrument`.
+- Both identify as ChordEngine / Music-Prod, version 0.5.0; accept and emit MIDI, are not synths; do not generate audio intentionally. **Static configuration/build verified; MIDI-through behavior and silent audio have not been exercised in a DAW host.**
 - The initial MIDI path passes input MIDI through unchanged; the GUI states this is a development skeleton. Processor-level CTest verifies unchanged event bytes/order/sample offsets and zeroed audio buffer.
 - Core/processor/reference-helper tests run under CTest (**2/2 passed**). No runtime parity claim for key/scale/chord event processing/recording/licensing is made.

@@ -30,6 +30,14 @@ constexpr std::array<const char*, 12> presetTokens {
     "rAndB", "neoSoul", "loFi", "house", "deep", "ambient" };
 constexpr std::array<const char*, 3> targetTokens { "whole", "lowest", "highest" };
 constexpr std::array<const char*, 3> velocityTokens { "dynamic", "maximum", "fixed" };
+constexpr std::array<const char*, 3> voicingTokens { "close", "spread", "open" };
+constexpr std::array<const char*, 3> soundTokens { "synth", "piano", "bass" };
+constexpr std::array<const char*, 2> switchTokens { "off", "on" };
+constexpr std::array<const char*, 12> quantizeTokens {
+    "none", "sixthStep", "quarterStep", "thirdStep", "halfStep", "step",
+    "sixthBeat", "quarterBeat", "thirdBeat", "halfBeat", "beat", "bar" };
+static_assert(quantizeTokens.size() == chordengine::midi::takeQuantizeCount,
+              "every TakeQuantize needs a persisted token");
 
 static_assert(scaleTokens.size() == chordengine::core::ScaleSystem::scaleCount,
               "every ScaleId needs a persisted token");
@@ -74,6 +82,45 @@ bool readField(const juce::XmlElement& root, const char* name, Apply&& apply)
     return apply(root.getStringAttribute(name));
 }
 
+// Pack identity fields: a slug as the store issues them, and display names
+// of printable text that fit the editor.
+bool validSlug(const juce::String& value)
+{
+    if (value.length() < 2 || value.length() > 63 || value[0] == '-')
+        return false;
+    return value.containsOnly("abcdefghijklmnopqrstuvwxyz0123456789-");
+}
+
+bool validName(const juce::String& value)
+{
+    if (value.isEmpty() || value.length() > 64)
+        return false;
+    for (const auto character : value)
+        if (character < 0x20 || character == 0x7f)
+            return false;
+    return true;
+}
+
+// The trigger map is persisted as two lower-case hex digits per code.
+juce::String encodeTriggerMap(const chordengine::core::CustomChordPreset& preset)
+{
+    juce::String text;
+    for (const auto code : preset.triggerMap)
+        text << juce::String::toHexString(static_cast<int>(code)).paddedLeft('0', 2);
+    return text;
+}
+
+bool decodeTriggerMap(const juce::String& text, chordengine::core::CustomChordPreset& preset)
+{
+    if (text.length() != static_cast<int>(2 * preset.triggerMap.size())
+        || !text.containsOnly("0123456789abcdef"))
+        return false;
+    for (std::size_t index = 0; index < preset.triggerMap.size(); ++index)
+        preset.triggerMap[index] = static_cast<std::uint8_t>(
+            text.substring(static_cast<int>(2 * index), static_cast<int>(2 * index + 2)).getHexValue32());
+    return true;
+}
+
 bool isValid(const CoreConfiguration& configuration) noexcept
 {
     return chordengine::core::ChordPresetSystem::get(configuration.preset) != nullptr
@@ -98,6 +145,24 @@ juce::String serialize(const PluginState& state)
     root.setAttribute("transposeOctave", configuration.transpose.octaveSteps);
     root.setAttribute("velocityMode", velocityTokens[static_cast<std::size_t>(configuration.velocityMode)]);
     root.setAttribute("fixedVelocity", static_cast<int>(configuration.fixedVelocity));
+    if (state.packPreset.has_value())
+    {
+        const auto& pack = *state.packPreset;
+        root.setAttribute("packSlug", pack.packSlug);
+        root.setAttribute("packName", pack.packName);
+        root.setAttribute("packPreset", pack.presetName);
+        root.setAttribute("packVoicing", juce::String(pack.preset.voicingStyle.data(),
+                                                      pack.preset.voicingStyle.size()));
+        root.setAttribute("packMap", encodeTriggerMap(pack.preset));
+    }
+    if (state.internalAudioEnabled.has_value())
+        root.setAttribute("internalAudio", switchTokens[*state.internalAudioEnabled ? 1 : 0]);
+    if (state.internalSound.has_value())
+        root.setAttribute("internalSound", soundTokens[static_cast<std::size_t>(*state.internalSound)]);
+    if (state.recordQuantize.has_value())
+        root.setAttribute("recordQuantize", quantizeTokens[static_cast<std::size_t>(*state.recordQuantize)]);
+    if (state.followHostRecord.has_value())
+        root.setAttribute("followHostRecord", switchTokens[*state.followHostRecord ? 1 : 0]);
     return root.toString();
 }
 
@@ -190,6 +255,67 @@ std::optional<PluginState> deserialize(const void* data, std::size_t sizeInBytes
             // Range-check before narrowing so an out-of-range value cannot wrap.
             if (!parsed.has_value() || *parsed < 1 || *parsed > 127) return false;
             configuration.fixedVelocity = static_cast<std::uint8_t>(*parsed);
+            return true;
+        }))
+        return std::nullopt;
+
+    // A pack preset is all-or-nothing: either every pack field is present and
+    // valid, or none is.
+    constexpr std::array<const char*, 5> packFields {
+        "packSlug", "packName", "packPreset", "packVoicing", "packMap" };
+    int packFieldCount = 0;
+    for (const auto* field : packFields)
+        packFieldCount += root->hasAttribute(field) ? 1 : 0;
+    if (packFieldCount == static_cast<int>(packFields.size()))
+    {
+        PackPresetState pack;
+        pack.packSlug = root->getStringAttribute("packSlug");
+        pack.packName = root->getStringAttribute("packName");
+        pack.presetName = root->getStringAttribute("packPreset");
+        const auto voicing = tokenIndex(voicingTokens, root->getStringAttribute("packVoicing"));
+        if (!validSlug(pack.packSlug) || !validName(pack.packName) || !validName(pack.presetName)
+            || !voicing.has_value() || !decodeTriggerMap(root->getStringAttribute("packMap"), pack.preset))
+            return std::nullopt;
+        pack.preset.voicingStyle = voicingTokens[*voicing];
+        if (!pack.preset.valid())
+            return std::nullopt;
+        state.packPreset = pack;
+    }
+    else if (packFieldCount != 0)
+        return std::nullopt;
+
+    if (!readField(*root, "internalAudio", [&](const juce::String& value)
+        {
+            const auto index = tokenIndex(switchTokens, value);
+            if (!index.has_value()) return false;
+            state.internalAudioEnabled = *index == 1;
+            return true;
+        }))
+        return std::nullopt;
+
+    if (!readField(*root, "internalSound", [&](const juce::String& value)
+        {
+            const auto index = tokenIndex(soundTokens, value);
+            if (!index.has_value()) return false;
+            state.internalSound = static_cast<InternalSound>(*index);
+            return true;
+        }))
+        return std::nullopt;
+
+    if (!readField(*root, "recordQuantize", [&](const juce::String& value)
+        {
+            const auto index = tokenIndex(quantizeTokens, value);
+            if (!index.has_value()) return false;
+            state.recordQuantize = static_cast<chordengine::midi::TakeQuantize>(*index);
+            return true;
+        }))
+        return std::nullopt;
+
+    if (!readField(*root, "followHostRecord", [&](const juce::String& value)
+        {
+            const auto index = tokenIndex(switchTokens, value);
+            if (!index.has_value()) return false;
+            state.followHostRecord = *index == 1;
             return true;
         }))
         return std::nullopt;

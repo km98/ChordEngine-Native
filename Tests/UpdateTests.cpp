@@ -186,7 +186,8 @@ int main()
                 "noPublishedRelease: the Latest row states it honestly");
         require(chordengine::updates::statusLine(view) == "Status  No published release",
                 "noPublishedRelease: the Status row states it honestly");
-        require(chordengine::updates::currentVersionLine(view) == "Current version  0.1.0",
+        require(chordengine::updates::currentVersionLine(view)
+                    == "Current version  " + juce::String(JucePlugin_VersionString),
                 "noPublishedRelease: the Current row shows the actual build version");
         require(!chordengine::updates::latestVersionLine(view).contains(" -"),
                 "noPublishedRelease: a real answer never renders as a placeholder dash");
@@ -684,9 +685,13 @@ int main()
         const juce::String reportedBuildVersion(chordengine::updates::currentBuildVersionString);
         require(reportedBuildVersion == expected,
                 "build version: it comes from the build metadata");
-        require(expected == "0.1.0", "build version: this development build reports 0.1.0");
-        require(expected != "0.4.0",
-                "build version: the development build must not pretend to be 0.4.0");
+        // The exact version is pinned by ChordEngineReleaseMetadataTests
+        // against the built bundles; here the point is that this build reports
+        // a real product version and neither a development placeholder nor the
+        // reference product's 0.4.0.
+        require(expected != "0.1.0" && expected != "0.4.0",
+                "build version: the build reports its own product version, not a "
+                "placeholder or the reference product's version");
         require(chordengine::updates::isValidSemver(expected),
                 "build version: it is a valid semver");
         require(reportedBuildVersion != juce::String("0.4.0"),
@@ -705,7 +710,8 @@ int main()
         require(raw->requestUrls[0].contains("platform=" + platform),
                 "build version: the platform is always explicit");
         require(view.currentVersion == expected, "build version: the view reports the build version");
-        require(chordengine::updates::currentVersionLine(view) == "Current version  0.1.0",
+        require(chordengine::updates::currentVersionLine(view)
+                    == "Current version  " + expected,
                 "build version: the INFO row shows the actual build version");
         require(chordengine::updates::statusLine(view) == "Status  No published release",
                 "build version: and the honest status of the live service");

@@ -14,9 +14,9 @@ This is the VST3 counterpart of `SECOND_MAC_HOST_TEST.md` (AU/Logic). It runs on
 
 - Test build: `Build/TestArtifacts/ChordEngine-Native-macOS-VST3-Test.zip`
   (verify SHA-256 against `Build/TestArtifacts/MANIFEST.txt` first).
-- Identity: version 0.1.0, product **ChordEngine**, manufacturer **Music-Prod**,
-  bundle id `com.musicprod.chordenginefl`, VST3 class category `Fx`, MIDI input/
-  output enabled, not a synth.
+- Identity: version 0.5.0, product **ChordEngine**, manufacturer **Music-Prod**,
+  bundle id `com.musicprod.chordenginefl`, VST3 class category `Instrument`,
+  MIDI input/output enabled, not a synth.
 - Preferred hosts: **FL Studio** or **Ableton Live** (either, on a clean machine or
   clean user account with no ChordEngine installed).
 - A **downstream software instrument** in the host that can receive MIDI from the

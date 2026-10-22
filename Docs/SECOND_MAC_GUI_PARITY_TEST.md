@@ -1,5 +1,7 @@
 # Second-Mac Logic GUI parity test — development AU (reference layout pass)
 
+> **Superseded layout (0.5.0):** the editor was redesigned after this checklist was written. The geometry below is the historical reference-parity record; check the current layout against [UI_REDESIGN_0.5.0.md](UI_REDESIGN_0.5.0.md).
+
 **Manual test only; no DAW automation.** Use a **new disposable Logic project only**. Do not open, alter, or save any existing Logic project. Do not open HISE, ChordEngine-FL, SideChainer, or any installed release plugin during this test.
 
 This checklist covers the **reference-parity GUI pass** (layout, typography, terminology, encoding, internal-audio status). It supersedes the GUI checks in [SECOND_MAC_GUI_TEST.md](SECOND_MAC_GUI_TEST.md) for visual verdicts; the earlier document remains the record of the previous milestone checklist. The AU MIDI route itself was already manually verified by Martin on a clean second Mac (see [HostObservations.json](../Tests/HostObservations.json), `hostObserved: true`); it is repeated here as a regression check only.
@@ -23,7 +25,7 @@ Verify the ZIP SHA-256 against [MANIFEST.txt](../Build/TestArtifacts/MANIFEST.tx
 Compare against the reference geometry: fixed 800×650 canvas, header wordmark at (200,8) 360×48, CHORD/INFO navigation at (528,8) and (648,8) 112×26, chord well (40,78) 720×118, recorder card (424,80) 316×82 inside the well, Key/Scale/Preset row y=200..238, piano (40,244) 720×216, velocity cards (40,478) and (408,478) each 348×78/352×78, internal-audio card (560,556) 200×64, Music-Prod wordmark slot (270,560) 260×86, footer at (620,626) right-aligned. See [NATIVE_GUI_REFERENCE_INVENTORY.md](NATIVE_GUI_REFERENCE_INVENTORY.md) for the evidence map.
 
 1. **Overall layout** matches that hierarchy: header/navigation on top, chord well with readout on the left and MIDI recorder on the right, harmonic selectors directly above a broad piano, velocity row below it, bottom band with Music-Prod branding, internal audio, and the version footer.
-2. **No malformed characters anywhere.** Every caption, readout, tooltip, and combo item renders correctly: no `Â`, no `â`, no stray `·`/`–`/`…` substitutions, no box glyphs. Check the chord readout, piano C labels (`C2` … `C7`), footer (`Chord Engine v0.4.0`), INFO copy, and the recorder rows.
+2. **No malformed characters anywhere.** Every caption, readout, tooltip, and combo item renders correctly: no `Â`, no `â`, no stray `·`/`–`/`…` substitutions, no box glyphs. Check the chord readout, piano C labels (`C2` … `C7`), footer (`Chord Engine v0.5.0`), INFO copy, and the recorder rows.
 3. **Music-Prod branding placement** is the bottom band wordmark at the reference logo slot — **not** an upper-left corner label. The header carries the **ChordEngine** wordmark only (`CHORD` bright / `ENGINE` dim with a blue rule beneath).
 4. **ChordEngine title / navigation**: `CHORD` and `INFO` buttons at the top right; the active page is visibly marked; both stay visible on either page.
 5. **Chord well** shows the selected harmonic context while idle (`<Key> <Scale> - <Preset>`, e.g. `C Minor - Dreamy`) in dim text, with the Core's C4 preview chord in the note line, e.g. `[D#3 G3 A#3 D4]`.
@@ -31,9 +33,9 @@ Compare against the reference geometry: fixed 800×650 canvas, header wordmark a
 7. **Transpose controls**: `TRANSPOSE` caption, `N OCT` chip, and the `-`/`+` stepper pills (drawn bar glyphs — the minus must be a clean horizontal bar and the plus a clean cross, never a corrupted character), plus the `WHOLE` / `LOWEST` / `HIGHEST` row where the active target is filled with the blue accent.
 8. **Velocity section**: `VELOCITY MODE` card with the Dynamic/Maximum/Fixed selector, and the `FIXED VELOCITY` card with a slider and a numeric value; the slider reads as inactive unless Fixed is selected.
 9. **Recorder panel**: `MIDI RECORDER` caption, right-aligned state line (`WAITING FOR ARM`, `ARMED - PLAY TO RECORD`, `RECORDING`, `N TAKE(S) STORED`), and the blue action pill whose label changes between `RECORD ARM`, `CANCEL`, and `STOP TAKE`.
-10. **INFO page**: `CHORD ENGINE` headline, `Version v0.1.0`, `ACCOUNT` (`User  Not signed in`, `Music-Prod+  NOT ACTIVE`, `License  Not verified`), `UPDATES` (current/latest/status rows and greyed `CHECK FOR UPDATES`, `OPEN MUSIC-PROD STUDIO`, `SIGN IN`), `TRIAL` (`Trial access  -`), and the `HELP & FEEDBACK` card. No development-only wording, no placeholder diagnostics text, no malformed characters.
+10. **INFO page**: `CHORD ENGINE` headline, `Version v0.5.0`, `ACCOUNT` (`User  Not signed in`, `Music-Prod+  NOT ACTIVE`, `License  Not verified`), `UPDATES` (current/latest/status rows and greyed `CHECK FOR UPDATES`, `OPEN MUSIC-PROD STUDIO`, `SIGN IN`), `TRIAL` (`Trial access  -`), and the `HELP & FEEDBACK` card. No development-only wording, no placeholder diagnostics text, no malformed characters.
 11. **Internal audio card** shows `INTERNAL AUDIO` with the `Generate internal sound` caption and an `OFF` pill rendered in the reference OFF style. It is a **status surface**, not an interactive switch: clicking must do nothing, and there must be no internal audio in any state.
-12. **Footer** reads `Chord Engine v0.1.0`, discreet bottom-right, and stays visible on both pages.
+12. **Footer** reads `Chord Engine v0.5.0`, discreet bottom-right, and stays visible on both pages.
 
 ## Section B — functional checks
 

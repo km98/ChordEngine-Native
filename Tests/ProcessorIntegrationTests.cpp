@@ -68,6 +68,22 @@ bool sameBytes(const juce::MidiMessage& a, const juce::MidiMessage& b)
 }
 
 // Runs one block and asserts the processor keeps audio completely silent.
+// A host transport whose record state the test flips between blocks.
+struct TestPlayHead final : juce::AudioPlayHead
+{
+    bool recording = false;
+    // FL Studio style: the record switch is on but the transport is stopped.
+    bool recordSwitchOnly = false;
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setBpm(120.0);
+        info.setIsPlaying(recording);
+        info.setIsRecording(recording || recordSwitchOnly);
+        return info;
+    }
+};
+
 void runBlock(ChordEngineAudioProcessor& processor, juce::AudioBuffer<float>& audio,
               juce::MidiBuffer& midi, const juce::String& context)
 {
@@ -795,7 +811,391 @@ int main()
         casePassed();
     }
 
-    constexpr int expectedCaseCount = 17;
+    // 18. With FOLLOW DAW RECORD on, the recorder follows the host's record
+    // button without RECORD ARM. It is off by default.
+    {
+        ChordEngineAudioProcessor processor;
+        TestPlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 64);
+        juce::AudioBuffer<float> localAudio(2, 64);
+        juce::MidiBuffer none;
+        require(!processor.followHostRecord(), "host record: follow mode is off by default");
+        playHead.recording = true;
+        runBlock(processor, localAudio, none, "host records with follow off");
+        require(processor.recorderState() == 0, "host record: with follow off the host does not arm");
+        processor.setFollowHostRecord(true);
+        runBlock(processor, localAudio, none, "follow switched on mid-recording");
+        require(processor.recorderState() == 0,
+                "host record: switching follow on mid-recording waits for the next record start");
+        playHead.recording = false;
+        runBlock(processor, localAudio, none, "host idle");
+        require(processor.recorderState() == 0, "host record: idle transport leaves the recorder idle");
+        playHead.recording = true;
+        runBlock(processor, localAudio, none, "host starts recording");
+        require(processor.recorderState() == 1, "host record: host recording arms the recorder");
+        juce::MidiBuffer attack;
+        attack.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(90)), 0);
+        runBlock(processor, localAudio, attack, "host record attack");
+        juce::MidiBuffer release;
+        release.addEvent(juce::MidiMessage::noteOff(1, 60), 16);
+        runBlock(processor, localAudio, release, "host record release");
+        require(processor.isRecorderRecording() && processor.recorderRecordedEventCount() == 8,
+                "host record: generated chord is captured");
+        playHead.recording = false;
+        runBlock(processor, localAudio, none, "host stops recording");
+        require(processor.recorderState() == 0 && processor.recorderTakeCount() == 1,
+                "host record: host stop stores the take");
+        playHead.recording = true;
+        runBlock(processor, localAudio, none, "host records without notes");
+        playHead.recording = false;
+        runBlock(processor, localAudio, none, "host stops without notes");
+        require(processor.recorderState() == 0 && processor.recorderTakeCount() == 1,
+                "host record: a pass with no generated notes stores nothing and disarms");
+        require(processor.armRecorder(), "host record: manual arm still works while host is idle");
+        playHead.recording = true;
+        runBlock(processor, localAudio, none, "host records over manual arm");
+        playHead.recording = false;
+        runBlock(processor, localAudio, none, "host stops over manual arm");
+        require(processor.recorderState() == 1,
+                "host record: a take armed by hand is not disarmed by the host");
+        require(processor.cancelRecorder(), "host record: manual take cancelled");
+        playHead.recordSwitchOnly = true;
+        runBlock(processor, localAudio, none, "host record switch while stopped");
+        require(processor.recorderState() == 0,
+                "host record: a record switch on a stopped transport does not arm");
+        playHead.recordSwitchOnly = false;
+        runBlock(processor, localAudio, none, "host record switch off");
+        playHead.recording = true;
+        runBlock(processor, localAudio, none, "host records before follow off");
+        require(processor.recorderState() == 1, "host record: armed by the host again");
+        processor.setFollowHostRecord(false);
+        playHead.recording = false;
+        runBlock(processor, localAudio, none, "host stops after follow off");
+        require(processor.recorderState() == 1,
+                "host record: switching follow off hands the armed take to the user");
+        require(processor.cancelRecorder(), "host record: handed-over take cancelled");
+
+        processor.setFollowHostRecord(true);
+        juce::MemoryBlock saved;
+        processor.getStateInformation(saved);
+        ChordEngineAudioProcessor restored;
+        restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        require(restored.followHostRecord(), "host record: follow mode is saved and restored");
+        processor.setPlayHead(nullptr);
+        casePassed();
+    }
+
+    // 19. A retriggered held note keeps both notes in the take.
+    {
+        ChordEngineAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 64);
+        juce::AudioBuffer<float> localAudio(2, 64);
+        require(processor.armRecorder(), "retrigger: arms");
+        juce::MidiBuffer first;
+        first.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(90)), 0);
+        runBlock(processor, localAudio, first, "retrigger first");
+        juce::MidiBuffer again;
+        again.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 32);
+        runBlock(processor, localAudio, again, "retrigger again");
+        juce::MidiBuffer release;
+        release.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        runBlock(processor, localAudio, release, "retrigger release");
+        require(processor.stopRecorder(), "retrigger: take stored");
+        auto exportFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("ChordEngine-Integration-Retrigger.mid");
+        exportFile.deleteFile();
+        require(processor.exportRecorderTake(0, exportFile), "retrigger: take exports");
+        juce::FileInputStream input(exportFile);
+        juce::MidiFile midiFile;
+        require(input.openedOk() && midiFile.readFrom(input, false) && midiFile.getNumTracks() == 1,
+                "retrigger: export readable");
+        auto* track = midiFile.getTrack(0);
+        juce::MidiMessageSequence notes(*track);
+        notes.updateMatchedPairs();
+        int pairedOns = 0;
+        int ons = 0;
+        for (int index = 0; index < notes.getNumEvents(); ++index)
+            if (notes.getEventPointer(index)->message.isNoteOn())
+            {
+                ++ons;
+                pairedOns += notes.getEventPointer(index)->noteOffObject != nullptr ? 1 : 0;
+            }
+        require(ons > 0 && ons == pairedOns,
+                "retrigger: every captured note-on has a matching note-off");
+        require(ons >= 8, "retrigger: both chord strikes survive in the take, got "
+                              + juce::String(ons) + " note-ons");
+        exportFile.deleteFile();
+        casePassed();
+    }
+
+    // 20. Internal audio: silent by default, sounds when switched on, keeps
+    //     the MIDI output, releases when switched off. Every sound.
+    {
+        ChordEngineAudioProcessor processor(true);
+        require(processor.hasAudioOutput() && !processor.isMidiEffect()
+                    && processor.getTotalNumOutputChannels() == 2,
+                "internal audio: the audio-output build has a stereo output");
+        processor.prepareToPlay(48000.0, 256);
+        juce::AudioBuffer<float> buffer(2, 256);
+        const auto peakOf = [&buffer]
+        {
+            return juce::jmax(buffer.getMagnitude(0, 0, buffer.getNumSamples()),
+                              buffer.getMagnitude(1, 0, buffer.getNumSamples()));
+        };
+        juce::MidiBuffer attack;
+        attack.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+        processor.processBlock(buffer, attack);
+        require(peakOf() == 0.0f, "internal audio: off by default, a trigger stays silent");
+        require(capture(attack).size() == 4, "internal audio: the chord is still emitted as MIDI");
+        juce::MidiBuffer releaseFirst;
+        releaseFirst.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        processor.processBlock(buffer, releaseFirst);
+
+        for (const auto sound : { ChordEngineAudioProcessor::InternalSound::synth,
+                                  ChordEngineAudioProcessor::InternalSound::piano,
+                                  ChordEngineAudioProcessor::InternalSound::bass })
+        {
+            processor.setInternalAudioEnabled(true);
+            processor.setInternalSound(sound);
+            juce::MidiBuffer on;
+            on.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+            processor.processBlock(buffer, on);
+            float heard = peakOf();
+            juce::MidiBuffer none;
+            for (int block = 0; block < 8; ++block)
+            {
+                processor.processBlock(buffer, none);
+                heard = juce::jmax(heard, peakOf());
+            }
+            require(heard > 0.01f && heard < 1.0f,
+                    "internal audio: sound " + juce::String(static_cast<int>(sound))
+                        + " is audible and below full scale (peak " + juce::String(heard) + ")");
+            require(capture(on).size() == 4, "internal audio: MIDI output unchanged while sounding");
+            processor.setInternalAudioEnabled(false);
+            juce::MidiBuffer off;
+            off.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+            processor.processBlock(buffer, off);
+            float tail = 1.0f;
+            for (int block = 0; block < 1500 && tail > 0.0f; ++block)
+            {
+                processor.processBlock(buffer, none);
+                tail = peakOf();
+            }
+            require(tail == 0.0f, "internal audio: switching off releases to silence");
+        }
+
+        juce::MidiBuffer midiOnly;
+        midiOnly.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+        ChordEngineAudioProcessor midiEffect;
+        require(!midiEffect.hasAudioOutput() && midiEffect.isMidiEffect()
+                    && midiEffect.getTotalNumOutputChannels() == 0,
+                "internal audio: the MIDI FX build keeps no audio bus");
+        casePassed();
+    }
+
+    // 21. Pack presets replace the stock preset, survive the host state with
+    //     the internal-audio settings, and clear back to the stock preset.
+    {
+        ChordEngineAudioProcessor processor(true);
+        processor.prepareToPlay(48000.0, 64);
+        juce::AudioBuffer<float> silent(2, 64);
+        const auto chordFor = [&processor, &silent]
+        {
+            juce::MidiBuffer on;
+            on.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+            processor.processBlock(silent, on);
+            std::vector<int> pitches;
+            for (const auto& event : capture(on))
+                if (event.message.isNoteOn())
+                    pitches.push_back(event.message.getNoteNumber());
+            juce::MidiBuffer off;
+            off.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+            processor.processBlock(silent, off);
+            return pitches;
+        };
+        const auto stock = chordFor();
+        require(stock == std::vector<int>({ 51, 55, 58, 62 }), "pack preset: stock Dreamy chord first");
+
+        ChordEngineAudioProcessor::PackPreset pack;
+        pack.packSlug = "chordengine-test-pack";
+        pack.packName = "ChordEngine Test Pack";
+        pack.presetName = "Test Triads";
+        pack.preset.triggerMap.fill(0); // degree 1, plain triad, everywhere
+        pack.preset.voicingStyle = "close";
+        require(processor.setPackPreset(pack), "pack preset: a valid preset is accepted");
+        const auto custom = chordFor();
+        require(custom.size() == 3 && custom != stock,
+                "pack preset: the pack's map drives generation (got "
+                    + juce::String(static_cast<int>(custom.size())) + " notes)");
+        require(processor.previewChordForTrigger(60).size == 3,
+                "pack preset: the editor preview follows the pack preset");
+
+        auto invalid = pack;
+        invalid.preset.triggerMap[10] = 200;
+        require(!processor.setPackPreset(invalid) && chordFor() == custom,
+                "pack preset: an out-of-range map is refused and the current preset kept");
+
+        processor.setInternalAudioEnabled(true);
+        processor.setInternalSound(ChordEngineAudioProcessor::InternalSound::piano);
+        juce::MemoryBlock saved;
+        processor.getStateInformation(saved);
+
+        ChordEngineAudioProcessor restored(true);
+        restored.prepareToPlay(48000.0, 64);
+        restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        const auto restoredPack = restored.packPreset();
+        require(restoredPack.has_value() && restoredPack->presetName == "Test Triads"
+                    && restoredPack->packSlug == "chordengine-test-pack"
+                    && restoredPack->preset.triggerMap == pack.preset.triggerMap,
+                "pack preset: the host state restores the pack preset with its map");
+        require(restored.internalAudioEnabled()
+                    && restored.internalSound() == ChordEngineAudioProcessor::InternalSound::piano,
+                "pack preset: the host state restores the internal-audio switch and sound");
+
+        processor.clearPackPreset();
+        require(!processor.packPreset().has_value() && chordFor() == stock,
+                "pack preset: clearing returns to the stock preset");
+        casePassed();
+    }
+
+    // 22. Recorder takes quantize on export to the host grid (FL Studio's list).
+    {
+        using chordengine::midi::TakeEvent;
+        using chordengine::midi::TakeGridAnchor;
+        using chordengine::midi::TakeQuantize;
+        using chordengine::midi::quantizeTake;
+        using chordengine::midi::takeQuantizeGridTicks;
+
+        const std::array<std::int64_t, chordengine::midi::takeQuantizeCount> expectedGrid {{
+            0, 40, 60, 80, 120, 240, 160, 240, 320, 480, 960, 3840 }};
+        for (std::size_t index = 0; index < expectedGrid.size(); ++index)
+            require(takeQuantizeGridTicks(static_cast<TakeQuantize>(index), 3840) == expectedGrid[index],
+                    "quantize: grid " + juce::String(static_cast<int>(index)) + " has the FL Studio spacing");
+        require(takeQuantizeGridTicks(TakeQuantize::bar, 2880) == 2880, "quantize: a bar follows the time signature");
+
+        const std::vector<TakeEvent> played {
+            { 0, 1, 60, 100, true }, { 0, 1, 64, 90, true },
+            { 430, 1, 60, 0, false }, { 455, 1, 64, 0, false },
+            { 517, 1, 67, 80, true }, { 900, 1, 67, 0, false } };
+        require(quantizeTake(played, TakeQuantize::none, {}).size() == played.size()
+                    && quantizeTake(played, TakeQuantize::none, {})[2].tick == 430,
+                "quantize: none exports the take exactly as played");
+
+        const auto toBeat = quantizeTake(played, TakeQuantize::halfBeat, {});
+        require(toBeat.size() == 6, "quantize: every note survives");
+        require(toBeat[0].noteOn && toBeat[0].tick == 0 && toBeat[1].noteOn && toBeat[1].tick == 0,
+                "quantize: without a host anchor the first note stays at tick 0");
+        bool movedToGrid = false;
+        for (const auto& event : toBeat)
+            if (event.noteOn && event.note == 67)
+                movedToGrid = event.tick == 480;
+        require(movedToGrid, "quantize: a late note snaps to the nearest 1/2-beat line (517 -> 480)");
+        for (const auto& event : toBeat)
+            if (!event.noteOn && event.note == 67)
+                require(event.tick == 900 - 37, "quantize: the note keeps its played length");
+
+        // Host anchor: the first note fell 259 ticks into its bar.
+        TakeGridAnchor anchor;
+        anchor.known = true;
+        anchor.offsetTicks = 259;
+        anchor.barTicks = 3840;
+        const auto anchored = quantizeTake(played, TakeQuantize::step, anchor);
+        require(anchored.front().noteOn && anchored.front().tick == 240,
+                "quantize: with a host anchor the take keeps its place in the bar (259 -> 240)");
+        const auto anchoredToBar = quantizeTake(played, TakeQuantize::bar, anchor);
+        require(anchoredToBar.front().tick == 0, "quantize: Bar snaps the first chord onto the bar line");
+        TakeGridAnchor early = anchor;
+        early.offsetTicks = 3830; // played just before the next bar line
+        require(quantizeTake(played, TakeQuantize::beat, early).front().tick == 0,
+                "quantize: a chord played just early lands on the next bar's downbeat");
+
+        // Repeated pitch that collapses onto one grid line keeps one note,
+        // and a release never overlaps the next start of the same pitch.
+        const std::vector<TakeEvent> repeated {
+            { 0, 1, 60, 100, true }, { 50, 1, 60, 0, false },
+            { 70, 1, 60, 110, true }, { 400, 1, 60, 0, false },
+            { 470, 1, 60, 90, true }, { 700, 1, 60, 0, false } };
+        const auto collapsed = quantizeTake(repeated, TakeQuantize::halfBeat, {});
+        int ons = 0;
+        bool sounding = false;
+        for (const auto& event : collapsed)
+        {
+            require(event.noteOn != sounding, "quantize: a repeated pitch is released before it starts again");
+            sounding = event.noteOn;
+            ons += event.noteOn ? 1 : 0;
+        }
+        require(ons == 2 && !sounding, "quantize: two starts on one grid line become one note");
+
+        // End to end: a running transport, the trigger 0.27 beats into bar 2.
+        struct GridPlayHead final : juce::AudioPlayHead
+        {
+            double ppq = 4.27;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setBpm(120.0);
+                info.setIsPlaying(true);
+                info.setPpqPosition(ppq);
+                info.setPpqPositionOfLastBarStart(4.0);
+                info.setTimeSignature(juce::AudioPlayHead::TimeSignature { 4, 4 });
+                return info;
+            }
+        } gridPlayHead;
+
+        ChordEngineAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 64);
+        processor.setPlayHead(&gridPlayHead);
+        juce::AudioBuffer<float> localAudio(2, 64);
+        require(processor.armRecorder(), "quantize: recorder arms");
+        juce::MidiBuffer attack;
+        attack.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(90)), 0);
+        runBlock(processor, localAudio, attack, "quantize attack");
+        juce::MidiBuffer release;
+        release.addEvent(juce::MidiMessage::noteOff(1, 60), 48);
+        runBlock(processor, localAudio, release, "quantize release");
+        require(processor.stopRecorder() && processor.recorderTakeCount() == 1, "quantize: take stored");
+        processor.setPlayHead(nullptr);
+
+        auto exportFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("ChordEngine-Integration-Quantize.mid");
+        auto firstOnset = [&exportFile]()
+        {
+            juce::FileInputStream input(exportFile);
+            juce::MidiFile midiFile;
+            if (!input.openedOk() || !midiFile.readFrom(input, false) || midiFile.getNumTracks() != 1)
+                return -1.0;
+            const auto* track = midiFile.getTrack(0);
+            for (int index = 0; index < track->getNumEvents(); ++index)
+                if (track->getEventPointer(index)->message.isNoteOn())
+                    return track->getEventPointer(index)->message.getTimeStamp();
+            return -1.0;
+        };
+        require(processor.recordQuantize() == TakeQuantize::none, "quantize: off by default");
+        exportFile.deleteFile();
+        require(processor.exportRecorderTake(0, exportFile) && firstOnset() == 0.0,
+                "quantize: with none the export is unchanged (first chord at tick 0)");
+        processor.setRecordQuantize(TakeQuantize::step);
+        exportFile.deleteFile();
+        require(processor.exportRecorderTake(0, exportFile) && firstOnset() == 240.0,
+                "quantize: Step places the chord on the host grid inside its bar (0.27 beat -> 240 ticks)");
+        processor.setRecordQuantize(TakeQuantize::beat);
+        exportFile.deleteFile();
+        require(processor.exportRecorderTake(0, exportFile) && firstOnset() == 0.0,
+                "quantize: Beat moves the chord to the downbeat");
+        exportFile.deleteFile();
+
+        processor.setRecordQuantize(TakeQuantize::thirdBeat);
+        juce::MemoryBlock saved;
+        processor.getStateInformation(saved);
+        ChordEngineAudioProcessor restored;
+        restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        require(restored.recordQuantize() == TakeQuantize::thirdBeat,
+                "quantize: the grid is saved in and restored from the host state");
+        casePassed();
+    }
+
+    constexpr int expectedCaseCount = 22;
     require(casesPassed == expectedCaseCount,
             "every integration case must run: expected "
                 + juce::String(expectedCaseCount) + ", executed "

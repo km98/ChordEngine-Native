@@ -71,13 +71,33 @@ bool ChordEngineCore::setConfiguration(const CoreConfiguration& configuration) n
     return true;
 }
 
+bool ChordEngineCore::setCustomPreset(const CustomChordPreset* preset) noexcept
+{
+    if (preset == nullptr)
+    {
+        customPresetActive_ = false;
+        return true;
+    }
+    if (!preset->valid())
+        return false;
+    customPreset_ = *preset;
+    customPresetActive_ = true;
+    return true;
+}
+
 bool ChordEngineCore::buildNotes(int triggerNote, NoteSet& notes) const noexcept
 {
-    const auto resolved = ChordPresetSystem::resolve(configuration_.preset, triggerNote,
-        configuration_.scale, configuration_.keyIndex);
-    const auto* preset = ChordPresetSystem::get(configuration_.preset);
-    if (!resolved || preset == nullptr)
+    const auto* builtIn = ChordPresetSystem::get(configuration_.preset);
+    if (!customPresetActive_ && builtIn == nullptr)
         return false;
+    const auto resolved = customPresetActive_
+        ? ChordPresetSystem::resolve(customPreset_.triggerMap.data(), triggerNote,
+                                     configuration_.scale, configuration_.keyIndex)
+        : ChordPresetSystem::resolve(configuration_.preset, triggerNote,
+                                     configuration_.scale, configuration_.keyIndex);
+    if (!resolved)
+        return false;
+    const auto voicingStyle = customPresetActive_ ? customPreset_.voicingStyle : builtIn->voicingStyle;
 
     std::array<std::int64_t, 6> pitches{};
     const auto count = static_cast<std::size_t>(resolved->intervalCount);
@@ -85,12 +105,12 @@ bool ChordEngineCore::buildNotes(int triggerNote, NoteSet& notes) const noexcept
         pitches[index] = static_cast<std::int64_t>(resolved->rootMidiNote)
             + resolved->intervals[index];
 
-    if (preset->voicingStyle == "open")
+    if (voicingStyle == "open")
     {
         for (std::size_t index = 1; index < count; index += 2)
             pitches[index] += 12;
     }
-    else if (preset->voicingStyle == "spread")
+    else if (voicingStyle == "spread")
     {
         constexpr std::array<std::size_t, 4> indices {{ 1, 2, 3, 4 }};
         constexpr std::array<int, 4> shifts {{ 12, 24, 12, 24 }};
