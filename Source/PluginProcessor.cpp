@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Licensing/MusicProdAuthService.h"
 
 #include <thread>
 
@@ -49,6 +50,45 @@ ChordEngineAudioProcessor::ChordEngineAudioProcessor(bool withAudioOutput)
       hasAudioOutput_(withAudioOutput)
 {
     configurationBits_.store(encodeConfiguration(core_.configuration()), std::memory_order_relaxed);
+
+    auto storageDir = defaultLicensingStorageDir();
+   #if CHORDENGINE_ISOLATED_LICENSING
+    // Test builds: every processor gets its own empty folder, so no test reads
+    // the developer's account or shares a trial budget with another test.
+    storageDir = storageDir.getNonexistentChildFile("processor", {}, false);
+    isolatedLicensingDir_ = storageDir;
+   #endif
+    licensing_ = std::make_unique<chordengine::licensing::LicensingRuntime>(
+        std::make_unique<chordengine::licensing::MusicProdAuthService>(),
+        nullptr,
+        storageDir.getChildFile("auth.json"));
+    licensing_->setGateSink([this](bool open) { setLicensingGateOpen(open); });
+    licensing_->setPlaybackActivitySource([this] { return consumePlaybackActivity(); });
+   #if !CHORDENGINE_ISOLATED_LICENSING
+    licensing_->start();
+   #endif
+}
+
+ChordEngineAudioProcessor::~ChordEngineAudioProcessor()
+{
+    licensing_.reset();
+    if (isolatedLicensingDir_ != juce::File())
+        isolatedLicensingDir_.deleteRecursively();
+}
+
+juce::File ChordEngineAudioProcessor::defaultLicensingStorageDir()
+{
+   #if CHORDENGINE_ISOLATED_LICENSING
+    return juce::File::getSpecialLocation(juce::File::tempDirectory)
+        .getChildFile("ChordEngineTestLicensing");
+   #else
+    // The account token and the trial budget live next to the other
+    // Music-Prod plugin state, in the same AppData location VYRE uses.
+    auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    if (appData.getFileName() == "Library")
+        appData = appData.getChildFile("Application Support");
+    return appData.getChildFile("Music-Prod").getChildFile("ChordEngine");
+   #endif
 }
 
 chordengine::state::PluginState ChordEngineAudioProcessor::stateSnapshot() const
@@ -765,6 +805,9 @@ void ChordEngineAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     internalSynth_.prepare(sampleRate > 0.0 ? sampleRate : 44100.0, juce::jmax(1, samplesPerBlock));
     internalAudioWasEnabled_ = false;
     resetRecorderForPlaybackBoundary();
+    // A new playback session: re-verify the account in the background, so a
+    // membership that ended falls back to the trial without the editor.
+    licensing_->requestRecheck();
     hostWasRecording_ = false;
     hostArmedTake_ = false;
     recorderSampleRate_ = sampleRate > 0.0 ? sampleRate : 44100.0;

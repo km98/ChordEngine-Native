@@ -53,7 +53,7 @@ PRODUCT="ChordEngine"
 # built with - the payload identity gate below refuses a mismatch - so it
 # tracks CHORDENGINE_VERSION in CMakeLists.txt. Override per release with
 # --version, and never reuse a version whose DMG/PKG already exists here.
-VERSION="0.5.0"
+VERSION="0.5.1"
 PKG_IDENTIFIER="com.musicprod.chordengine.pkg"
 
 APP_ID="Developer ID Application: Martin Kadziolka (3A4R5EKM7V)"

@@ -138,13 +138,20 @@ void LicensingBoundary::initialise()
 void LicensingBoundary::setGateSink(std::function<void(bool)> sink)
 {
     gateSink_ = std::move(sink);
+    publishedGate_ = -1;
     publishGate();
 }
 
 void LicensingBoundary::publishGate()
 {
-    if (gateSink_)
-        gateSink_(!expiredGateActive());
+    // Published on change only, so the sink is not rewritten ten times a
+    // second and a gate set by someone else stays until the decision moves.
+    const int open = expiredGateActive() ? 0 : 1;
+    if (gateSink_ && open != publishedGate_)
+    {
+        publishedGate_ = open;
+        gateSink_(open == 1);
+    }
 }
 
 void LicensingBoundary::setInfoPageVisible(bool visible) noexcept
@@ -157,20 +164,63 @@ void LicensingBoundary::notePlaybackStarted()
     model_.notePlaybackStarted();
 }
 
-void LicensingBoundary::tick()
+void LicensingBoundary::tick(double deltaMs)
 {
-    // One 100 ms step of the reference's onTimer: the usage clock first,
-    // then the auth driver (prime / poll / re-verify).
-    model_.advanceTrial(tickMs);
+    // One step of the reference's onTimer: the usage clock first, then the
+    // auth driver (prime / poll / re-verify).
+    const bool trialWasRunning = model_.trialRunning();
+    const bool expiredNow = model_.advanceTrial(deltaMs);
     model_.tick();
 
     publishGate();
 
-    if (model_.consumePersistenceDirty())
+    bool save = model_.consumePersistenceDirty() || expiredNow;
+    if (trialWasRunning && ++trialSaveCounter_ >= trialSaveTicks)
+        save = true;
+    if (save)
+    {
+        trialSaveCounter_ = 0;
         saveAuthFile();
+    }
 
     if (pendingUrl_.isEmpty() && !model_.snapshot().verificationUrl.isEmpty())
         pendingUrl_ = model_.snapshot().verificationUrl;
+}
+
+void LicensingBoundary::refreshNow()
+{
+    model_.requestVerificationNow();
+}
+
+void LicensingBoundary::flushTrial()
+{
+    if (model_.snapshot().trialStarted || model_.snapshot().trialExpired)
+        saveAuthFile();
+}
+
+bool LicensingBoundary::reloadIfChangedOnDisk(std::int64_t now)
+{
+    if (authFile_ == juce::File() || !authFile_.existsAsFile())
+        return false;
+    const auto& snapshot = model_.snapshot();
+    if (snapshot.polling || snapshot.activationPending || snapshot.phase == Phase::linking)
+        return false;
+    if (authFile_.getLastModificationTime() <= authFileTime_)
+        return false;
+
+    // Keep this session's trial progress: loading merges the stored budget
+    // with it (the smaller remaining budget wins).
+    const auto remaining = snapshot.trialMs;
+    const auto expired = snapshot.trialExpired;
+    const auto started = snapshot.trialStarted;
+    loadAuthFile();
+    if (expired || remaining < model_.snapshot().trialMs)
+        model_.restoreTrial(remaining, expired);
+    if (started)
+        model_.notePlaybackStarted();
+    model_.applyCachedEntitlement(now);
+    publishGate();
+    return true;
 }
 
 void LicensingBoundary::signInButtonClicked()
@@ -291,6 +341,34 @@ void LicensingBoundary::saveAuthFile()
         return;
 
     authFile_.getParentDirectory().createDirectory();
+
+    // The trial budget is shared by every instance on this computer: never
+    // write back more time than another instance already left on disk.
+    auto trialRemaining = model_.snapshot().trialMs;
+    auto trialExpired = model_.snapshot().trialExpired;
+    if (authFile_.existsAsFile())
+    {
+        const auto onDisk = juce::JSON::parse(authFile_.loadFileAsString());
+        if (onDisk.isObject())
+        {
+            const auto storedRemaining = onDisk.getProperty("trial_remaining_ms", juce::var());
+            if (storedRemaining.isInt() || storedRemaining.isInt64() || storedRemaining.isDouble())
+                trialRemaining = juce::jmin(trialRemaining, static_cast<double>(storedRemaining));
+            if (flagAt(onDisk, "trial_expired", false))
+                trialExpired = true;
+        }
+    }
+    if (trialExpired || trialRemaining <= 0.0)
+    {
+        trialRemaining = 0.0;
+        trialExpired = true;
+    }
+    if (trialExpired != model_.snapshot().trialExpired || trialRemaining < model_.snapshot().trialMs)
+    {
+        model_.restoreTrial(trialRemaining, trialExpired);
+        publishGate();
+    }
+
     authFile_.deleteFile();
 
     const auto& cached = model_.cached();
@@ -309,7 +387,10 @@ void LicensingBoundary::saveAuthFile()
     object->setProperty("devices_used", cached.devicesUsed);
     object->setProperty("device_limit", cached.deviceLimit);
     object->setProperty("verified_at", static_cast<juce::int64>(model_.verifiedAtMs()));
+    object->setProperty("trial_remaining_ms", static_cast<juce::int64>(trialRemaining));
+    object->setProperty("trial_expired", trialExpired);
     authFile_.replaceWithText(juce::JSON::toString(objectToVar(object.get())));
+    authFileTime_ = authFile_.getLastModificationTime();
 }
 
 void LicensingBoundary::loadAuthFile()
@@ -379,6 +460,15 @@ void LicensingBoundary::loadAuthFile()
         static_cast<double>(parsed.getProperty("verified_at", 0)));
 
     model_.loadToken(token, user, cached, verifiedAt);
+
+    // The remaining trial budget. A file written before it was persisted
+    // has none, and keeps the budget this model already holds.
+    const auto trialRemaining = parsed.getProperty("trial_remaining_ms", juce::var());
+    if (trialRemaining.isInt() || trialRemaining.isInt64() || trialRemaining.isDouble())
+        model_.restoreTrial(static_cast<double>(trialRemaining), flagAt(parsed, "trial_expired", false));
+    else if (flagAt(parsed, "trial_expired", false))
+        model_.restoreTrial(0.0, true);
+    authFileTime_ = authFile_.getLastModificationTime();
 
     if (deviceIdWasCreated)
         saveAuthFile();

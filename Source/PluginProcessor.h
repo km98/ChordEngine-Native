@@ -10,6 +10,7 @@
 
 #include "Audio/InternalSynth.h"
 #include "Core/ChordEngineCore.h"
+#include "Licensing/LicensingRuntime.h"
 #include "MIDI/MidiNoteTracker.h"
 #include "State/PluginState.h"
 
@@ -30,6 +31,7 @@ class ChordEngineAudioProcessor final : public juce::AudioProcessor
 {
 public:
     explicit ChordEngineAudioProcessor(bool withAudioOutput = CHORDENGINE_AUDIO_OUTPUT != 0);
+    ~ChordEngineAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -111,6 +113,15 @@ public:
     static constexpr const char* helpFeedbackUrl = "https://music-prod.com/plugin/chordengine-feedback";
 
     // ------------------------------------------------------------------
+    // Licensing. The processor owns the licensing runtime, so the account
+    // check, the offline window and the trial clock run whether or not the
+    // editor is open; the editor only displays it and forwards its buttons.
+    // Message thread only.
+    chordengine::licensing::LicensingRuntime& licensing() noexcept { return *licensing_; }
+    // Where auth.json lives: Music-Prod/ChordEngine in Application Support,
+    // or a private temporary folder in the isolated test builds.
+    static juce::File defaultLicensingStorageDir();
+
     // Licensing gate. The audio path READS one lock-free flag; the message
     // thread (LicensingBoundary) is the only writer. When the gate is closed
     // an unlicensed trial has expired and the reference generates no chord at
@@ -313,7 +324,9 @@ private:
     std::array<std::atomic<bool>, 16> sustainPedalDown_ {};
     std::atomic<std::uint32_t> activeTriggerCount_ { 0 };
     std::atomic<std::uint32_t> activeOutputNoteCount_ { 0 };
-    std::atomic<bool> licensingGateOpen_ { true };
+    // Closed until the licensing runtime has published its first decision
+    // (in the constructor, before any audio block).
+    std::atomic<bool> licensingGateOpen_ { false };
     std::atomic<bool> playbackActivityPending_ { false };
     std::atomic<std::uint8_t> recorderState_ { 0 }; // idle, armed, recording, transitioning
     std::atomic_flag recorderCaptureAccess_ = ATOMIC_FLAG_INIT;
@@ -341,6 +354,10 @@ private:
     mutable std::atomic_flag recorderTakeAccess_ = ATOMIC_FLAG_INIT;
     chordengine::midi::MidiNoteTracker tracker_;
     chordengine::core::CoreResult coreResult_;
+
+    // Declared last: destroyed first, while the gate it publishes to exists.
+    juce::File isolatedLicensingDir_;
+    std::unique_ptr<chordengine::licensing::LicensingRuntime> licensing_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChordEngineAudioProcessor)
 };

@@ -20,8 +20,9 @@ endif()
 #
 # 0.5.0 is the first UNIVERSAL release: it continues the legacy ChordEngine FL
 # line (0.4.0) and replaces it - one product, one implementation, one
-# entitlement, both plug-in formats and every supported DAW.
-set(CHORDENGINE_VERSION "0.5.0")
+# entitlement, both plug-in formats and every supported DAW. 0.5.1 moves the
+# licence check and the persisted trial clock into the processor.
+set(CHORDENGINE_VERSION "0.5.1")
 
 project(ChordEngineNative VERSION ${CHORDENGINE_VERSION} LANGUAGES C CXX)
 
@@ -104,6 +105,7 @@ add_library(ChordEngineLicensing STATIC
     Source/Licensing/LicensingModel.cpp
     Source/Licensing/LicensingServices.cpp
     Source/Licensing/LicensingBoundary.cpp
+    Source/Licensing/LicensingRuntime.cpp
     Source/Licensing/MusicProdAuthService.cpp)
 target_include_directories(ChordEngineLicensing PUBLIC Source)
 target_compile_features(ChordEngineLicensing PUBLIC cxx_std_17)
@@ -359,6 +361,7 @@ if(BUILD_TESTING)
     target_include_directories(ChordEngineCoreTests PRIVATE Source)
     target_compile_definitions(ChordEngineCoreTests PRIVATE
         CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
         CHORDENGINE_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/Tests/GoldenVectors.json"
         CHORDENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
@@ -382,6 +385,7 @@ if(BUILD_TESTING)
     target_include_directories(ChordEngineGuiSnapshot PRIVATE Source)
     target_compile_definitions(ChordEngineGuiSnapshot PRIVATE
         CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
         CHORDENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
         JUCE_WEB_BROWSER=0
@@ -421,6 +425,7 @@ if(BUILD_TESTING)
     target_include_directories(ChordEngineProcessorIntegrationTests PRIVATE Source)
     target_compile_definitions(ChordEngineProcessorIntegrationTests PRIVATE
         CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
         CHORDENGINE_FL_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/Tests/FLReferenceVectors.json"
         ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
         JUCE_WEB_BROWSER=0
@@ -443,6 +448,7 @@ if(BUILD_TESTING)
     target_include_directories(ChordEngineFunctionalTests PRIVATE Source)
     target_compile_definitions(ChordEngineFunctionalTests PRIVATE
         CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
         CHORDENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
         JUCE_WEB_BROWSER=0
@@ -464,6 +470,7 @@ if(BUILD_TESTING)
     target_include_directories(ChordEngineUpdateTests PRIVATE Source)
     target_compile_definitions(ChordEngineUpdateTests PRIVATE
         CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
         CHORDENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
         JUCE_WEB_BROWSER=0
@@ -494,6 +501,21 @@ if(BUILD_TESTING)
         PUBLIC juce::juce_recommended_config_flags
                juce::juce_recommended_warning_flags)
     add_test(NAME ChordEngineLicensingContractTests COMMAND ChordEngineLicensingContractTests)
+
+    # The processor-owned licensing runtime: the gate decided at load with no
+    # editor, the persisted trial budget, background re-checks and the
+    # fallback to the trial when a Music-Prod+ membership ends.
+    add_executable(ChordEngineLicensingRuntimeTests Tests/LicensingRuntimeTests.cpp)
+    target_include_directories(ChordEngineLicensingRuntimeTests PRIVATE Source)
+    target_compile_definitions(ChordEngineLicensingRuntimeTests PRIVATE
+        ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(ChordEngineLicensingRuntimeTests
+        PRIVATE ChordEngineLicensing juce::juce_core juce::juce_events
+        PUBLIC juce::juce_recommended_config_flags
+               juce::juce_recommended_warning_flags)
+    add_test(NAME ChordEngineLicensingRuntimeTests COMMAND ChordEngineLicensingRuntimeTests)
 
     # Route SWITCHES between the two independent ways to unlock ChordEngine.
     # The product stays entitled while EITHER a Music-Prod+ subscription or an
@@ -528,6 +550,7 @@ if(BUILD_TESTING)
     target_include_directories(ChordEngineStateTests PRIVATE Source)
     target_compile_definitions(ChordEngineStateTests PRIVATE
         CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
         ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -628,6 +651,7 @@ if(BUILD_TESTING)
         target_include_directories(ChordEngineWindowsStackProbe PRIVATE Source)
         target_compile_definitions(ChordEngineWindowsStackProbe PRIVATE
             CHORDENGINE_UPDATE_OFFLINE_TRANSPORT=1
+        CHORDENGINE_ISOLATED_LICENSING=1
             ${CHORDENGINE_PLUGIN_BUILD_DEFINITIONS}
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0)

@@ -37,8 +37,20 @@ public:
     // The first real chord starts the clock (reference onNoteOn).
     void notePlaybackStarted() noexcept;
 
+    // The persisted budget (see LicensingBoundary): a reload or a reopened
+    // editor continues the trial instead of restarting it. The clock itself
+    // still starts only at the first chord of the session.
+    void restoreTrial(double remainingMs, bool expired) noexcept;
+    bool trialRunning() const noexcept
+    {
+        return !snapshot_.licensed && snapshot_.trialStarted && !snapshot_.trialExpired;
+    }
+
     // ---- account state machine (reference ceAuthTick / ceAuthButtonClicked)
     void tick();                       // 10 Hz driver: prime, poll, re-verify
+    // Re-verify now (playback prepared, editor opened). No-op without a
+    // token or while a link is pending.
+    void requestVerificationNow();
     void signInOrCancel();             // the ONE account button
     void signOut();                    // infoSignOutButton
     void cancelLink();

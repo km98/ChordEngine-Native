@@ -489,13 +489,13 @@ private:
     PillButton gateStudio_ { "OPEN MUSIC-PROD STUDIO", 4.0f, 30.0f, 9.5f };
     PillButton gateSignIn_ { "SIGN IN", 4.0f, 30.0f, 9.5f };
 
-    chordengine::licensing::MusicProdAuthService authService_;
-    chordengine::licensing::MusicProdUpdateService updateService_;
     // The real, anonymous update client. It is deliberately separate from the
     // licensing boundary below: the INFO update rows read THIS view, the check
     // needs no account state, and nothing here writes licensing state.
     std::unique_ptr<chordengine::updates::UpdateService> updates_;
-    std::unique_ptr<chordengine::licensing::LicensingBoundary> licensing_;
+    // The processor's licensing boundary (the processor owns and drives it;
+    // the editor displays it and forwards its buttons).
+    chordengine::licensing::LicensingBoundary* licensing_ = nullptr;
     double lastLicensingTickMs_ = 0.0;
     // The configuration the controls currently show. The timer compares it with
     // the processor so restored or externally changed settings reach the GUI.

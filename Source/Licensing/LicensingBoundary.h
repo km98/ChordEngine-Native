@@ -41,9 +41,19 @@ public:
 
     void setInfoPageVisible(bool visible) noexcept;
 
-    // 10 Hz driver (message thread only).
-    void tick();
+    // 10 Hz driver (message thread only). deltaMs is the time the trial
+    // clock advances by (one tick unless the caller measured otherwise).
+    void tick(double deltaMs = tickMs);
     void notePlaybackStarted();
+
+    // Re-verify the entitlement now (playback prepared, editor opened).
+    void refreshNow();
+    // Reloads the auth file when another instance changed it (a sign-in in
+    // another window), unless a link is in progress here. Returns true when
+    // it reloaded.
+    bool reloadIfChangedOnDisk(std::int64_t nowMs);
+    // Writes the remaining trial budget now (shutdown).
+    void flushTrial();
 
     // Real button callbacks - reference onControl handlers.
     void signInButtonClicked();      // SIGN IN / CANCEL LINK
@@ -89,7 +99,14 @@ private:
     juce::File authFile_;
     juce::String deviceId_;
     std::function<void(bool)> gateSink_;
+    int publishedGate_ = -1; // -1 = nothing published to this sink yet
     juce::String pendingUrl_;
+    // Trial persistence: saved every few seconds while the clock runs, and
+    // the file time last written or read here (another instance's write is
+    // newer).
+    int trialSaveCounter_ = 0;
+    juce::Time authFileTime_;
+    static constexpr int trialSaveTicks = 50; // 5 s
 
     // Async auth replies come back on the message thread after this object
     // may already be gone, so every callback holds a weak reference.

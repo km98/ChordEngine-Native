@@ -1742,26 +1742,18 @@ ChordEngineAudioProcessorEditor::ChordEngineAudioProcessorEditor(
     jassert(logoImage_.isValid());
 
     // ---- Music-Prod state folder (reference ceInitialize) -----------
-    // The account token and the update cache live next to the other
-    // Music-Prod plugin state, in the same AppData location the reference and
-    // VYRE use.
+    // Takes, packs and the update cache live next to the other Music-Prod
+    // plugin state, in the same AppData location the reference and VYRE use.
     const auto storageDir = licensingStorageDir != juce::File()
         ? licensingStorageDir
-        : [] {
-              auto appData = juce::File::getSpecialLocation(
-                  juce::File::userApplicationDataDirectory);
-              if (appData.getFileName() == "Library")
-                  appData = appData.getChildFile("Application Support");
-              return appData.getChildFile("Music-Prod")
-                            .getChildFile("ChordEngine");
-          }();
-    const auto authFile = storageDir.getChildFile("auth.json");
+        : ChordEngineAudioProcessor::defaultLicensingStorageDir();
     takeExportDir_ = storageDir.getChildFile("Takes");
 
-    licensing_ = std::make_unique<chordengine::licensing::LicensingBoundary>(
-        authService_, updateService_, authFile);
-    licensing_->setGateSink([this](bool gateOpen) { processor_.setLicensingGateOpen(gateOpen); });
-    licensing_->initialise();
+    // Licensing belongs to the processor, which checks access and runs the
+    // trial clock with or without this window. Opening it re-checks at once
+    // and picks up a sign-in made in another instance.
+    licensing_ = &processor_.licensing().boundary();
+    processor_.licensing().editorOpened();
     licensing_->setInfoPageVisible(false);
 
     // ---- Preset Packs: the installed library, the store client and the
@@ -2707,12 +2699,8 @@ void ChordEngineAudioProcessorEditor::driveLicensingTick(double nowMs)
 
     lastLicensingTickMs_ = nowMs;
 
-    // The trial usage clock starts only after the first generated chord
-    // (reference onNoteOn sets trialStarted).
-    if (processor_.consumePlaybackActivity())
-        licensing_->notePlaybackStarted();
-
-    licensing_->tick();
+    // The processor's licensing runtime advances the trial and re-verifies;
+    // the editor only shows the current state.
     updateInfoDisplay();
     updateGateDisplay();
 }

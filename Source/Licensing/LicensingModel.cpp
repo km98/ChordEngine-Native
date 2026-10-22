@@ -124,6 +124,18 @@ void LicensingModel::notePlaybackStarted() noexcept
         snapshot_.trialStarted = true;
 }
 
+void LicensingModel::restoreTrial(double remainingMs, bool expired) noexcept
+{
+    if (expired || !(remainingMs > 0.0))
+    {
+        snapshot_.trialMs = 0.0;
+        snapshot_.trialExpired = true;
+        return;
+    }
+    snapshot_.trialMs = juce::jmin(remainingMs, trialTotalMs);
+    snapshot_.trialExpired = false;
+}
+
 // ----------------------------------------------------------- account
 void LicensingModel::setToken(const juce::String& token, const juce::String& user)
 {
@@ -591,6 +603,15 @@ void LicensingModel::tick()
                 requestEntitlements(token_);
         }
     }
+}
+
+void LicensingModel::requestVerificationNow()
+{
+    if (token_.isEmpty() || snapshot_.polling || !requestEntitlements)
+        return;
+    primed_ = true;
+    verifyTickCounter_ = 0;
+    requestEntitlements(token_);
 }
 
 // ------------------------------------------------------------ update

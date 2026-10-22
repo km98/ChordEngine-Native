@@ -1195,7 +1195,41 @@ int main()
         casePassed();
     }
 
-    constexpr int expectedCaseCount = 22;
+    // 23. Licensing runs in the processor: with no editor ever created the
+    // gate is decided at construction, the first chord starts the trial and
+    // an expired trial stops chord generation; prepareToPlay asks for a
+    // background re-check.
+    {
+        ChordEngineAudioProcessor processor;
+        require(processor.licensingGateOpen(), "licensing: a new installation opens the trial without an editor");
+        processor.prepareToPlay(48000.0, 64);
+        juce::AudioBuffer<float> localAudio(2, 64);
+        juce::MidiBuffer chord;
+        chord.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(90)), 0);
+        runBlock(processor, localAudio, chord, "licensing trial chord");
+        require(!chord.isEmpty(), "licensing: the trial generates chords");
+        auto& runtime = processor.licensing();
+        const auto now = juce::Time::currentTimeMillis();
+        runtime.tick(100.0, now);
+        require(runtime.boundary().snapshot().trialStarted,
+                "licensing: the processor's first chord starts the trial clock");
+        for (double elapsed = 0.0; elapsed <= chordengine::licensing::trialTotalMs; elapsed += 1000.0)
+            runtime.tick(1000.0, now);
+        require(!processor.licensingGateOpen(), "licensing: an expired trial closes the gate without an editor");
+        juce::MidiBuffer release;
+        release.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        runBlock(processor, localAudio, release, "licensing release");
+        juce::MidiBuffer blocked;
+        blocked.addEvent(juce::MidiMessage::noteOn(1, 62, static_cast<juce::uint8>(90)), 0);
+        runBlock(processor, localAudio, blocked, "licensing expired chord");
+        bool anyNoteOn = false;
+        for (const auto metadata : blocked)
+            anyNoteOn = anyNoteOn || metadata.getMessage().isNoteOn();
+        require(!anyNoteOn, "licensing: an expired trial generates no chord");
+        casePassed();
+    }
+
+    constexpr int expectedCaseCount = 23;
     require(casesPassed == expectedCaseCount,
             "every integration case must run: expected "
                 + juce::String(expectedCaseCount) + ", executed "
