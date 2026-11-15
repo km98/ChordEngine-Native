@@ -357,7 +357,7 @@ WinEditor::WinEditor(EditorHost& host, HWND parent, int pixelWidth, int pixelHei
         windowClass.style = 0;
         windowClass.lpfnWndProc = &WinEditor::windowProc;
         windowClass.hInstance = st::thisModule();
-        windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        windowClass.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); // IDC_ARROW
         windowClass.lpszClassName = windowClassName();
         classRegistered = RegisterClassExW(&windowClass) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
     }
@@ -888,16 +888,17 @@ LRESULT WinEditor::handle(UINT message, WPARAM wParam, LPARAM lParam)
             if (LOWORD(lParam) == HTCLIENT && reinterpret_cast<HWND>(wParam) == window_)
             {
                 const Widget* widget = capture_ != nullptr ? capture_ : hover_;
-                LPCWSTR shape = IDC_ARROW;
+                // The system cursors by id (the W forms of IDC_*; this build is not UNICODE).
+                WORD shape = 32512; // IDC_ARROW
                 switch (widget != nullptr ? widget->cursor() : Cursor::arrow)
                 {
-                    case Cursor::pointingHand: shape = IDC_HAND; break;
-                    case Cursor::openHand: shape = IDC_SIZEALL; break;
-                    case Cursor::iBeam: shape = IDC_IBEAM; break;
-                    case Cursor::crosshair: shape = IDC_SIZENWSE; break;
+                    case Cursor::pointingHand: shape = 32649; break; // IDC_HAND
+                    case Cursor::openHand: shape = 32646; break;     // IDC_SIZEALL
+                    case Cursor::iBeam: shape = 32513; break;        // IDC_IBEAM
+                    case Cursor::crosshair: shape = 32642; break;    // IDC_SIZENWSE
                     case Cursor::arrow: break;
                 }
-                SetCursor(LoadCursorW(nullptr, shape));
+                SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(shape)));
                 return TRUE;
             }
             break;
