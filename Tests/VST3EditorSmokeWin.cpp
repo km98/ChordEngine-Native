@@ -16,6 +16,7 @@
 #endif
 #include <windows.h>
 #include <ole2.h>
+#include <wincodec.h>
 
 #include "pluginterfaces/base/funknown.h"
 #include "pluginterfaces/base/ipluginbase.h"
@@ -27,7 +28,13 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
+#include <initializer_list>
 #include <string>
+#include <vector>
+
+#pragma comment(lib, "windowscodecs.lib")
 
 namespace Steinberg
 {
@@ -115,6 +122,98 @@ HWND editorChild(HWND parent)
             return child;
     }
     return nullptr;
+}
+
+// What the host window shows on screen (PrintWindow with the DWM's full
+// content, so Direct2D and the EDIT control are included), cropped to the
+// editor's area at its top-left, as a PNG; returns the number of distinct
+// colours sampled (0 on failure).
+int captureWindow(HWND child, const std::wstring& file)
+{
+    HWND window = GetAncestor(child, GA_ROOT);
+    RECT rect {};
+    GetClientRect(child, &rect);
+    const int width = rect.right - rect.left, height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0)
+        return 0;
+    BITMAPINFO info {};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC screen = GetDC(nullptr);
+    HDC memory = CreateCompatibleDC(screen);
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HGDIOBJ old = SelectObject(memory, bitmap);
+    const BOOL printed = PrintWindow(window, memory, PW_CLIENTONLY | 0x00000002 /* PW_RENDERFULLCONTENT */);
+    GdiFlush();
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * height * 4);
+    if (bits != nullptr)
+        std::memcpy(pixels.data(), bits, pixels.size());
+    SelectObject(memory, old);
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(nullptr, screen);
+    if (!printed)
+        return 0;
+    for (std::size_t index = 3; index < pixels.size(); index += 4)
+        pixels[index] = 255;
+    std::vector<std::uint32_t> colours;
+    for (std::size_t index = 0; index < pixels.size() && colours.size() < 64; index += 4 * 97)
+    {
+        std::uint32_t colour = 0;
+        std::memcpy(&colour, &pixels[index], 4);
+        bool seen = false;
+        for (auto c : colours)
+            seen = seen || c == colour;
+        if (!seen)
+            colours.push_back(colour);
+    }
+    IWICImagingFactory* factory = nullptr;
+    IWICStream* stream = nullptr;
+    IWICBitmapEncoder* encoder = nullptr;
+    IWICBitmapFrameEncode* frame = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))
+        && SUCCEEDED(factory->CreateStream(&stream)) && SUCCEEDED(stream->InitializeFromFilename(file.c_str(), GENERIC_WRITE))
+        && SUCCEEDED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder))
+        && SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache))
+        && SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) && SUCCEEDED(frame->Initialize(nullptr)))
+    {
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+        frame->SetSize(static_cast<UINT>(width), static_cast<UINT>(height));
+        frame->SetPixelFormat(&format);
+        frame->WritePixels(static_cast<UINT>(height), static_cast<UINT>(width) * 4, static_cast<UINT>(pixels.size()),
+                           pixels.data());
+        frame->Commit();
+        encoder->Commit();
+    }
+    for (IUnknown* object : std::initializer_list<IUnknown*> { frame, encoder, stream, factory })
+        if (object != nullptr)
+            object->Release();
+    return static_cast<int>(colours.size());
+}
+
+std::wstring captureDirectory()
+{
+    const char* dir = std::getenv("CHORDENGINE_SMOKE_CAPTURE_DIR");
+    if (dir == nullptr || *dir == 0)
+        return {};
+    std::wstring wide;
+    for (const char* c = dir; *c != 0; ++c)
+        wide += static_cast<wchar_t>(static_cast<unsigned char>(*c));
+    CreateDirectoryW(wide.c_str(), nullptr);
+    return wide + L"\\";
+}
+
+void click(HWND window, int x, int y)
+{
+    const LPARAM at = MAKELPARAM(x, y);
+    SendMessageW(window, WM_MOUSEMOVE, 0, at);
+    SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, at);
+    SendMessageW(window, WM_LBUTTONUP, 0, at);
 }
 
 SIZE clientSize(HWND window)
@@ -239,6 +338,34 @@ int main(int argc, char** argv)
             UpdateWindow(child);
             SendMessageW(child, WM_MOUSEMOVE, 0, MAKELPARAM(400, 400));
             pump(200);
+
+            // What the hosted window really shows (first round): the CHORD
+            // page, then INFO with a key typed into the native field.
+            if (round == 0 && child != nullptr)
+            {
+                ViewRect design(0, 0, 800, 650);
+                view->onSize(&design);
+                InvalidateRect(child, nullptr, FALSE);
+                pump(150);
+                const auto dir = captureDirectory();
+                const int colours = captureWindow(child, dir + L"ChordEngine-Windows-hosted-chord.png");
+                check(colours > 4, "the hosted window shows the editor (" + std::to_string(colours) + " colours sampled)");
+                click(child, 734, 36); // INFO
+                pump(100);
+                HWND key = FindWindowExW(child, nullptr, L"EDIT", nullptr);
+                check(key != nullptr && (GetWindowLongPtrW(key, GWL_STYLE) & WS_VISIBLE) != 0,
+                      "INFO (clicked in the hosted window) shows the licence key field");
+                if (key != nullptr)
+                {
+                    SetFocus(key);
+                    for (const wchar_t c : std::wstring(L"PC-7QF2-3MHD-NX4T-9BKR"))
+                        SendMessageW(key, WM_CHAR, c, 0);
+                }
+                pump(150);
+                captureWindow(child, dir + L"ChordEngine-Windows-hosted-info-key.png");
+                click(child, 615, 36); // back to CHORD
+                pump(50);
+            }
 
             check(view->removed() == kResultOk, "removed()" + r);
             pump(50);
