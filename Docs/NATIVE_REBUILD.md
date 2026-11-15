@@ -110,7 +110,7 @@ Source/PluginProcessor.*                                 format-independent proc
 Source/AU/ChordEngineAU.mm                               AudioUnitSDK adapter, compiled twice
                                                          (MIDI FX / instrument)
 Source/VST3/ChordEngineVST3.mm                           single-component VST3 adapter (mac + Windows)
-Source/UI/                                               AppKit editor (NSView), see Docs/UI_NATIVE_EDITOR.md
+Source/UI/                                               the editor: platform-neutral core + AppKit (macOS) and Direct2D (Windows) back ends, see Docs/UI_NATIVE_EDITOR.md
 ```
 
 ### Ported (same behaviour, JUCE types replaced)
@@ -146,8 +146,10 @@ Source/UI/                                               AppKit editor (NSView),
   `IEditController`, `IMidiMapping`; buses "Output" (mono/stereo, others
   refused), "MIDI Input", "MIDI Output"; host bypass persisted in state
   (`hostBypass`), which the validator's bypass-persistence test needs.
-- Editor: AppKit `NSView`, same look as `Docs/UI_REDESIGN_0.5.0.md`, every
-  control real (details and open items in `Docs/UI_NATIVE_EDITOR.md`).
+- Editor: a platform-neutral core (`EditorController`, widgets drawn through a
+  `Canvas`) with an AppKit `NSView` back end on macOS and a Direct2D /
+  DirectWrite child `HWND` on Windows; same look as `Docs/UI_REDESIGN_0.5.0.md`,
+  every control real (details and open items in `Docs/UI_NATIVE_EDITOR.md`).
   Take drag-out uses `NSFilePromiseProvider`/file URLs.
 - Windows platform layer (`PlatformWin.cpp`): WinHTTP, BCrypt, a message-only
   dispatcher window for main-thread jobs and timers.
@@ -180,6 +182,8 @@ the build installed; see open items).
 |---|---|---|---|---|
 | 13 unit/integration suites (core, FL reference vectors, internal synth, state, licensing ×3, updates, packs, processor integration, functional, RT safety) | pass | pass | pass | pass (13/13 CTest incl. NoJuce) |
 | EditorTests (72 checks) | pass | — | — | n/a |
+| EditorWinTests (89 checks, real window messages), VST3EditorSmoke (built DLL: createView / attach HWND / onSize / content scale / removed) — 2026-11-15, GitHub Actions `windows-2022` | n/a | | | pass (15/15 CTest) |
+| Editor refactor check: snapshot tool, 17 states, before vs after the platform-neutral split — 2026-11-15 | identical pixels (mean diff 0.00); 20/20 CTest incl. VST3 host test + validator | | | |
 | RealtimeSafety: 256 blocks, 0 allocations / 0 frees / 0 locks (positive control trips the probe) | pass | | | |
 | NoJuce: sources + both architectures of all 3 bundles: 0 JUCE symbols, system libraries only (negative control: 0.5.1 AU has 23,478 / 21,682 JUCE symbols) | pass | | | pass (sources; DLL imports only Windows/MSVC runtime DLLs, exports only `GetPluginFactory`/`InitDll`/`ExitDll`, no JUCE strings besides the two state keys) |
 | AU probe MIDI FX + Instrument | pass | | | |
@@ -206,23 +210,72 @@ belongs to the host-test step below.
 of pixels differ by more than 24, from the version string, the new resize grip,
 text rasterisation and the activation image's pressed state.
 
-## Windows editor plan
+## Windows editor
 
-The Windows VST3 currently has no editor (`createView` supports only
-`kPlatformTypeNSView`, so hosts show their generic parameter view). Plan:
+Status 2026-11-15 (branch `windows-editor`, draft PR #2 on top of
+`windows-installer`): **built and tested on CI only; not yet run on a real
+Windows PC or in a DAW.** Unsigned (owner decision).
 
-1. Split `Source/UI/EditorWidgets.mm`/`EditorView.mm` into a platform-neutral
-   C++ layer (layout in the 800×650 design space, hit testing, widget state,
-   a paint list of rects/rounded rects/lines/text runs/images) and thin
-   platform back ends. `EditorStyle` colours/metrics move with it.
-2. Windows back end: `IPlugView` for `kPlatformTypeHWND`, a child `HWND`,
-   Direct2D + DirectWrite for drawing (Inter/Schibsted Grotesk loaded
-   privately with `AddFontMemResourceEx`/DirectWrite custom font collection),
-   per-monitor DPI awareness, `IPlugViewContentScaleSupport`, resize via
-   `IPlugFrame::resizeView` within 640×520–1280×1040.
-3. Take drag-out with OLE `DoDragDrop` and a `CF_HDROP` of the exported `.mid`.
-4. Snapshot tool renders through Direct2D to WIC PNGs, compared against the
-   macOS snapshots in CI on the build PC.
+What was done, following the plan:
+
+1. Done. `Source/UI/EditorController.*`, `EditorWidgets.*` and `EditorStyle.*`
+   are platform-neutral C++ (layout in the 800 x 650 design space, hit
+   testing, widget state, page / gate / recorder / packs / account logic, the
+   0.5 text-fitting rules); drawing goes through a `Canvas` interface, the
+   window system through `EditorRoot` / `WidgetPeer`. The AppKit back end keeps
+   one view per widget as before; its renders are pixel-identical to the
+   pre-split build in all 17 snapshot states.
+2. Done. `EditorWin.cpp` / `EditorStyleWin.cpp`: a child `HWND` for
+   `kPlatformTypeHWND`, Direct2D drawing, DirectWrite with the bundled Inter /
+   Schibsted Grotesk loaded as private font collections (Windows 10 1703+;
+   older systems fall back to Segoe UI), Georgia for the display serif, Segoe
+   Script for the wordmark (Baskerville / Snell Roundhand are used where
+   installed). Per-monitor DPI (`GetDpiForWindow`,
+   `WM_DPICHANGED_AFTERPARENT`) and `IPlugViewContentScaleSupport`; VST3 sizes
+   are pixels = points x scale; resize through `IPlugFrame::resizeView` within
+   640 x 520 .. 1280 x 1040 (grip and host resizing). The licence key is a
+   native EDIT control (typing, Ctrl+V and the right-click menu, IME);
+   selectors are Win32 pop-up menus; tooltips; the pack list scrolls with the
+   mouse wheel. Only the invalid area is repainted.
+3. Done (untested in a DAW). Takes drag out through OLE `DoDragDrop` with the
+   shell's own data object for the file (CF_HDROP + shell formats, copy / move
+   / link offered, as from Explorer); right-click offers "Show in Explorer".
+4. Done differently: `ChordEngineEditorWinTests --snapshots <dir>` renders the
+   main states through Direct2D to PNG (WIC); CI uploads them as the
+   `ChordEngine-Windows-editor-snapshots` artifact for review. No pixel
+   comparison against macOS (the system serif and script faces differ).
+
+Not done / known gaps: no `IPlugView::onKeyDown` forwarding (keys reach the
+EDIT control through the host's normal message loop; a host that swallows
+keystrokes would block typing, but right-click Paste still works); Win32 menus
+use the light system theme; the Steinberg validator does not run on CI for
+Windows (it did on the build PC for 0.6.0); no keyboard navigation (as on
+macOS).
+
+### Owner test on a real Windows PC
+
+Install `ChordEngine-0.6.0-Windows-x64-Setup.exe` from the PR's CI artifacts
+(or copy the `ChordEngine-VST3-windows` bundle to
+`C:\Program Files\Common Files\VST3`), then in FL Studio (and any other VST3 host):
+
+1. Insert ChordEngine: the window opens at 800 x 650 (larger on a scaled
+   display) with the Chord Engine page; fonts look like the Mac version.
+2. Click piano keys (a chord sounds and lights up); slide across keys.
+3. Preset / Key / Scale menus open under the selector and change the chord;
+   preset < > step; transpose and velocity controls work; hover shows tooltips.
+4. Drag the bottom-right grip: the window resizes with the aspect kept; also
+   resize from the host if it allows it.
+5. INFO: SIGN IN opens the browser for the Music-Prod device link; after
+   approving, the account rows update (and SIGN OUT appears).
+6. INFO: click the licence key box, type a key, also try Ctrl+V and
+   right-click > Paste; ACTIVATE sends it and clears the field.
+7. PACKS: the list loads; scroll with the wheel; download works when signed in.
+8. Record a take (RECORD ARM, play, STOP TAKE) and drag the TAKE row into the
+   playlist / a track; right-click a take > Show in Explorer.
+9. Move the window to a monitor with a different scaling (125 % / 150 %): it
+   should rescale crisply; close and reopen the editor several times.
+10. Note anything that looks wrong (screenshots help), and whether typing in
+    the key field works in each host.
 
 ## Open items
 
@@ -237,12 +290,12 @@ The Windows VST3 currently has no editor (`createView` supports only
 - Windows installer: `Tools/Windows/ChordEngine.iss` (Inno Setup 6) is built and
   smoke-tested (install / reinstall / uninstall) by `.github/workflows/windows-vst3.yml`,
   which uploads `ChordEngine-<version>-Windows-x64-Setup.exe` as an artifact. It is
-  UNSIGNED (no Windows code signing certificate yet) and not published. Shipping on
-  Windows still needs the Windows editor (plan above): without it there is no way to
-  sign in or enter a licence, and hosts show only generic parameters.
+  UNSIGNED (no Windows code signing certificate yet) and not published. The Windows
+  editor (above) is built and CI-tested on branch `windows-editor`; it still needs the
+  owner's test on a real PC before anything ships.
 - Editor: SIGN IN is not clicked in tests (needs an auth-service seam in the
   processor), keyboard focus/navigation not ported, selector popups are native
-  menus; Windows editor (plan above).
+  menus; Windows editor: see "Windows editor" above.
 - Release packaging: a signed, notarized 0.6.0 candidate exists
   (`Docs/RELEASE_0.6.0_CANDIDATE.md`); real-DAW test steps in
   `Docs/DAW_TEST_0.6.0.md`. Not released.

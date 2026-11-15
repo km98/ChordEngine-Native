@@ -26,6 +26,9 @@ jobs:
         run: cmake --build Build/Windows --config Release
 
       - name: Run CTest
+        env:
+          # The VST3 editor smoke test saves what the hosted window shows here.
+          CHORDENGINE_SMOKE_CAPTURE_DIR: ${{ runner.temp }}\editor-snapshots
         run: ctest --test-dir Build/Windows -C Release --output-on-failure
 
       - name: Render the Windows editor (PNG snapshots of the main states)
