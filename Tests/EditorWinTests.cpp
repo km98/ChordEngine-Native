@@ -157,7 +157,7 @@ std::uint32_t pixelAt(const std::vector<std::uint8_t>& bgra, int width, int x, i
     return 0xff000000u | (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[1]) << 8) | p[0];
 }
 
-bool near(std::uint32_t a, std::uint32_t b, int tolerance = 6)
+bool similar(std::uint32_t a, std::uint32_t b, int tolerance = 6)
 {
     for (int shift = 0; shift <= 16; shift += 8)
         if (std::abs(static_cast<int>((a >> shift) & 0xff) - static_cast<int>((b >> shift) & 0xff)) > tolerance)
@@ -403,17 +403,17 @@ int main(int argc, char** argv)
             check(ui::renderWinEditor(editor, 1.0f, pixels, width, height) && width == 800 && height == 650, "renders 800 x 650");
             if (width == 800 && height == 650)
             {
-                check(near(pixelAt(pixels, width, 5, 5), st::page.argb), "the page colour fills the canvas");
+                check(similar(pixelAt(pixels, width, 5, 5), st::page.argb), "the page colour fills the canvas");
                 const auto key = controller.controlBounds("piano-display");
                 // Middle of the first white key's lower half.
                 const auto whiteKey = pixelAt(pixels, width, static_cast<int>(key.x + 6), static_cast<int>(key.y + key.height * 0.7f));
-                check(near(whiteKey, st::whiteKey.argb, 20) || near(whiteKey, st::whiteKeyShade.argb, 20),
+                check(similar(whiteKey, st::whiteKey.argb, 20) || similar(whiteKey, st::whiteKeyShade.argb, 20),
                       "a white key is drawn");
                 int ink = 0;
                 const auto title = controller.controlBounds("chord-name");
                 for (int y = static_cast<int>(title.y); y < static_cast<int>(title.maxY()); ++y)
                     for (int x = static_cast<int>(title.x); x < static_cast<int>(title.x + 200); ++x)
-                        ink += near(pixelAt(pixels, width, x, y), st::page.argb, 30) ? 0 : 1;
+                        ink += similar(pixelAt(pixels, width, x, y), st::page.argb, 30) ? 0 : 1;
                 check(ink > 200, "the chord name is drawn as text (" + std::to_string(ink) + " ink pixels)");
             }
         }

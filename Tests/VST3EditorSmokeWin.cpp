@@ -15,6 +15,7 @@
  #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <ole2.h>
 
 #include "pluginterfaces/base/funknown.h"
 #include "pluginterfaces/base/ipluginbase.h"
