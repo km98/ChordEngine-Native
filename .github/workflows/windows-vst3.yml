@@ -35,3 +35,46 @@ jobs:
           name: ChordEngine-VST3-windows
           path: Build/Windows/Bundles/ChordEngine.vst3
           if-no-files-found: error
+
+      - name: Read the product version
+        id: version
+        shell: pwsh
+        run: |
+          $m = Select-String -Path CMakeLists.txt -Pattern 'set\(CHORDENGINE_VERSION "([0-9.]+)"\)' | Select-Object -First 1
+          if (-not $m) { Write-Host 'CHORDENGINE_VERSION not found in CMakeLists.txt'; exit 1 }
+          "version=$($m.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+
+      - name: Build the installer (Inno Setup 6, unsigned)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { Write-Host 'ISCC.exe not found'; exit 1 }
+          & $iscc /O"$env:RUNNER_TEMP\installer" /DAppVersion=${{ steps.version.outputs.version }} `
+              /DStagedBundle="$PWD\Build\Windows\Bundles\ChordEngine.vst3" Tools\Windows\ChordEngine.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\installer\*.exe" | Format-List
+
+      - name: Installer smoke test (install / reinstall / uninstall)
+        shell: pwsh
+        run: |
+          & "$PWD\Tools\Windows\TestInstaller.ps1" `
+              -Setup "$env:RUNNER_TEMP\installer\ChordEngine-${{ steps.version.outputs.version }}-Windows-x64-Setup.exe" `
+              -BuiltModule "$PWD\Build\Windows\Bundles\ChordEngine.vst3\Contents\x86_64-win\ChordEngine.vst3" `
+              -LogDir "$env:RUNNER_TEMP\installer-logs"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Archive the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChordEngine-${{ steps.version.outputs.version }}-Windows-x64-Setup
+          path: ${{ runner.temp }}/installer/*.exe
+          if-no-files-found: error
+
+      - name: Archive installer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChordEngine-installer-logs
+          path: ${{ runner.temp }}/installer-logs
+          if-no-files-found: ignore
