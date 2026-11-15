@@ -15,8 +15,10 @@ scale, drawing rules, wording and behaviour were ported one to one.
 | `Source/UI/EditorStyleApple.h/.mm` | macOS back end of `EditorStyle`: bundled Inter / Schibsted Grotesk loaded process-privately with `CTFontManagerCreateFontDescriptorsFromURL`, system Baskerville and Snell Roundhand Bold as in 0.5, Core Text metrics, `CGCanvas`, the re-tinted Music-Prod mark |
 | `Source/UI/EditorWidgetsApple.h/.mm` | One AppKit view class (`CEWidgetView`) per widget forwarding drawing (through `CGCanvas`), mouse events, tooltips, cursor rects and NSMenu pop-ups |
 | `Source/UI/EditorView.mm` | The AppKit root view, `AppleEditorRoot` (widget views, the licence key's NSTextField, the pack list's NSScrollView) and the NSView-based API in `EditorHost.h` |
+| `Source/UI/EditorWin.h/.cpp`, `EditorStyleWin.h/.cpp`, `TakeDragWin.cpp` | Windows back end: a child HWND drawn with Direct2D (`D2DCanvas`), DirectWrite faces (the bundled fonts as private collections), the licence key as a native EDIT control, Win32 pop-up menus, tooltips, an overlay-scrolled pack list, DPI scale, OLE drag of takes, offscreen PNG renders (see `Docs/NATIVE_REBUILD.md`, "Windows editor") |
 | `Source/UI/TakeDrag.h/.mm` | OS drag of a take file (copy, generic, link and move offered, as FL Studio needs; outcome appended to `Takes/drag-log.txt`) |
 | `Tools/EditorSnapshot.mm` | Offscreen renders of the 17 states / sizes the 0.5.1 tool rendered, plus before / after comparisons and a difference metric |
+| `Tests/EditorWinTests.cpp`, `Tests/VST3EditorSmokeWin.cpp` | Windows: the controller and window driven through real window messages (plus `--snapshots <dir>` PNG renders, uploaded by CI); a host's view of the built VST3 editor (create / attach / resize / content scale / remove) |
 | `Tests/EditorTests.mm`, `Tests/EditorTests.cmake` | Control-by-control tests (target `ChordEngineEditorTests`) and the snapshot target |
 
 All Objective-C classes carry the per-binary suffix (`CE_OBJC`), so the AU and

@@ -41,6 +41,21 @@ if(APPLE)
                                                      "-framework CoreMIDI" "-framework Foundation")
 endif()
 
+# The Windows editor: the controller and the Direct2D window driven through
+# real window messages (and, with --snapshots <dir>, PNG renders); and a host's
+# view of the built VST3's editor (attach / resize / scale / remove).
+if(WIN32)
+    chordengine_test(ChordEngineEditorWinTests
+        SOURCES EditorWinTests.cpp ${CHORDENGINE_EDITOR_SOURCES}
+        LIBRARIES ChordEngineProcessorIsolated ${CHORDENGINE_EDITOR_FRAMEWORKS}
+        DEFINITIONS CHORDENGINE_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/Resources" ${CHORDENGINE_VERSION_DEFINITIONS})
+    add_executable(ChordEngineVST3EditorSmoke VST3EditorSmokeWin.cpp)
+    target_link_libraries(ChordEngineVST3EditorSmoke PRIVATE ChordEngineVST3SDK user32 ole32)
+    add_dependencies(ChordEngineVST3EditorSmoke ChordEngineVST3)
+    add_test(NAME ChordEngineVST3EditorSmoke COMMAND ChordEngineVST3EditorSmoke $<TARGET_FILE:ChordEngineVST3>)
+    set_tests_properties(ChordEngineVST3EditorSmoke PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 # The editor's tests and snapshot tool (Source/UI) live in their own file.
 if(APPLE AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/EditorTests.mm AND EXISTS ${CMAKE_SOURCE_DIR}/Tools/EditorSnapshot.mm)
     include(${CMAKE_CURRENT_SOURCE_DIR}/EditorTests.cmake OPTIONAL)
