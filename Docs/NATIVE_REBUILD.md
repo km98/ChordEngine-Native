@@ -234,6 +234,12 @@ The Windows VST3 currently has no editor (`createView` supports only
   be moved away first (owner decision pending).
 - Music-Prod Studio must learn the three new bundle ids before it can update
   0.6.0 installs.
+- Windows installer: `Tools/Windows/ChordEngine.iss` (Inno Setup 6) is built and
+  smoke-tested (install / reinstall / uninstall) by `.github/workflows/windows-vst3.yml`,
+  which uploads `ChordEngine-<version>-Windows-x64-Setup.exe` as an artifact. It is
+  UNSIGNED (no Windows code signing certificate yet) and not published. Shipping on
+  Windows still needs the Windows editor (plan above): without it there is no way to
+  sign in or enter a licence, and hosts show only generic parameters.
 - Editor: SIGN IN is not clicked in tests (needs an auth-service seam in the
   processor), keyboard focus/navigation not ported, selector popups are native
   menus; Windows editor (plan above).
