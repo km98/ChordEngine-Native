@@ -1,157 +1,15 @@
+// The editor's controls, platform-neutral (see EditorWidgets.h). The macOS
+// peers are in EditorWidgetsApple.mm, the Windows ones in EditorWin.cpp.
 #include "EditorWidgets.h"
 
 #include "PluginProcessor.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 using namespace chordengine::ui;
 namespace st = chordengine::ui::style;
-
-// ===================================================================== views
-@implementation CEWidgetView
-{
-    NSTrackingArea* trackingArea_;
-}
-
-- (BOOL)isFlipped
-{
-    return YES;
-}
-
-- (BOOL)acceptsFirstMouse:(NSEvent*)event
-{
-    (void) event;
-    return YES;
-}
-
-- (NSView*)hitTest:(NSPoint)point
-{
-    if (self.widget == nullptr || !self.widget->interactive() || !self.widget->isEnabled() || self.hidden)
-        return nil;
-    return [super hitTest:point];
-}
-
-- (void)drawRect:(NSRect)dirtyRect
-{
-    (void) dirtyRect;
-    if (self.widget == nullptr)
-        return;
-    CGContextRef context = NSGraphicsContext.currentContext.CGContext;
-    CGContextSaveGState(context);
-    // Applied while drawing (not as the view's alphaValue), so offscreen
-    // renders and every host show the same dimmed state.
-    CGContextSetAlpha(context, self.widget->alpha());
-    CGContextBeginTransparencyLayer(context, nullptr);
-    self.widget->paint(context, self.bounds);
-    CGContextEndTransparencyLayer(context);
-    CGContextRestoreGState(context);
-}
-
-- (void)updateTrackingAreas
-{
-    if (trackingArea_ != nil)
-        [self removeTrackingArea:trackingArea_];
-    trackingArea_ = [[NSTrackingArea alloc] initWithRect:self.bounds
-                                                 options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved
-                                                       | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
-                                                   owner:self
-                                                userInfo:nil];
-    [self addTrackingArea:trackingArea_];
-    [super updateTrackingAreas];
-}
-
-- (void)resetCursorRects
-{
-    if (self.widget != nullptr)
-        if (NSCursor* cursor = self.widget->cursor())
-            [self addCursorRect:self.bounds cursor:cursor];
-}
-
-- (CGPoint)local:(NSEvent*)event
-{
-    return NSPointToCGPoint([self convertPoint:event.locationInWindow fromView:nil]);
-}
-
-- (void)mouseEntered:(NSEvent*)event
-{
-    (void) event;
-    if (self.widget == nullptr)
-        return;
-    self.widget->hover = true;
-    [self setNeedsDisplay:YES];
-}
-
-- (void)mouseExited:(NSEvent*)event
-{
-    (void) event;
-    if (self.widget == nullptr)
-        return;
-    self.widget->hover = false;
-    self.widget->mouseMove(CGPointMake(-1, -1));
-    [self setNeedsDisplay:YES];
-}
-
-- (void)mouseMoved:(NSEvent*)event
-{
-    if (self.widget != nullptr)
-        self.widget->mouseMove([self local:event]);
-}
-
-- (void)mouseDown:(NSEvent*)event
-{
-    if (self.widget == nullptr)
-        return;
-    if ((event.modifierFlags & NSEventModifierFlagControl) != 0)
-    {
-        self.widget->rightMouseDown([self local:event], event);
-        return;
-    }
-    self.widget->pressed = true;
-    self.widget->mouseDown([self local:event], event);
-    [self setNeedsDisplay:YES];
-}
-
-- (void)mouseDragged:(NSEvent*)event
-{
-    if (self.widget != nullptr)
-        self.widget->mouseDrag([self local:event], event);
-}
-
-- (void)mouseUp:(NSEvent*)event
-{
-    if (self.widget == nullptr)
-        return;
-    self.widget->pressed = false;
-    self.widget->mouseUp([self local:event], event);
-    [self setNeedsDisplay:YES];
-}
-
-- (void)rightMouseDown:(NSEvent*)event
-{
-    if (self.widget != nullptr)
-        self.widget->rightMouseDown([self local:event], event);
-}
-@end
-
-@implementation CEActionTarget
-{
-    std::function<void(NSInteger)> action_;
-}
-
-- (instancetype)initWithAction:(std::function<void(NSInteger)>)action
-{
-    if ((self = [super init]))
-        action_ = std::move(action);
-    return self;
-}
-
-- (void)invoke:(id)sender
-{
-    if (action_)
-        action_([sender respondsToSelector:@selector(tag)] ? [sender tag] : 0);
-}
-@end
 
 namespace chordengine::ui
 {
@@ -162,41 +20,36 @@ std::string noteName(int midiNote)
 }
 
 // ==================================================================== widget
-Widget::Widget(std::string identifier) : identifier_(std::move(identifier))
+Widget::Widget(std::string identifier) : identifier_(std::move(identifier)) {}
+
+Widget::~Widget() = default;
+
+void Widget::setPeer(std::unique_ptr<WidgetPeer> peer)
 {
-    CEWidgetView* view = [[CEWidgetView alloc] initWithFrame:NSZeroRect];
-    view.widget = this;
-    view.identifier = [NSString stringWithUTF8String:identifier_.c_str()];
-    view_ = view;
+    peer_ = std::move(peer);
+    if (peer_ != nullptr)
+    {
+        peer_->boundsChanged();
+        peer_->visibilityChanged();
+        peer_->tooltipChanged();
+    }
 }
 
-Widget::~Widget()
+void Widget::setBounds(Rect bounds)
 {
-    static_cast<CEWidgetView*>(view_).widget = nullptr;
-    [view_ removeFromSuperview];
-}
-
-void Widget::setBounds(CGRect bounds)
-{
-    view_.frame = NSRectFromCGRect(bounds);
-    [view_.window invalidateCursorRectsForView:view_];
+    bounds_ = bounds;
+    if (peer_ != nullptr)
+        peer_->boundsChanged();
+    geometryChanged();
     repaint();
-}
-
-CGRect Widget::bounds() const
-{
-    return NSRectToCGRect(view_.frame);
-}
-
-CGRect Widget::localBounds() const
-{
-    return CGRectMake(0, 0, view_.frame.size.width, view_.frame.size.height);
 }
 
 void Widget::setVisible(bool visible)
 {
     visible_ = visible;
-    view_.hidden = !visible;
+    if (peer_ != nullptr)
+        peer_->visibilityChanged();
+    geometryChanged();
 }
 
 void Widget::setEnabled(bool enabled)
@@ -217,12 +70,15 @@ void Widget::setAlpha(float alpha)
 
 void Widget::setTooltip(const std::string& tooltip)
 {
-    view_.toolTip = tooltip.empty() ? nil : [NSString stringWithUTF8String:tooltip.c_str()];
+    tooltip_ = tooltip;
+    if (peer_ != nullptr)
+        peer_->tooltipChanged();
 }
 
 void Widget::repaint()
 {
-    [view_ setNeedsDisplay:YES];
+    if (peer_ != nullptr)
+        peer_->repaint();
 }
 
 // ===================================================================== label
@@ -258,26 +114,26 @@ void Label::setLive(bool live)
     repaint();
 }
 
-void Label::paint(CGContextRef context, CGRect bounds)
+void Label::paint(st::Canvas& context, Rect bounds)
 {
     if (mode_ == Mode::infoRow)
         return paintInfoRow(context, bounds);
     if (mode_ == Mode::noteTokens)
         return paintNoteTokens(context, bounds);
-    const int lines = std::max(1, static_cast<int>(bounds.size.height / std::max(1.0f, font_.height)));
+    const int lines = std::max(1, static_cast<int>(bounds.height / std::max(1.0f, font_.height)));
     st::drawFitted(context, text_, bounds, font_, isEnabled() ? colour_ : colour_.withMultipliedAlpha(0.5f),
                    justification_, lines, minimumScale_);
 }
 
-void Label::paintInfoRow(CGContextRef context, CGRect bounds)
+void Label::paintInfoRow(st::Canvas& context, Rect bounds)
 {
     // "Key  value" rows: the key in a fixed column in the quiet tone, the
     // value from one shared edge, wrapping inside its column.
     const auto separator = text_.find("  ");
-    const float width = static_cast<float>(bounds.size.width);
+    const float width = bounds.width;
     const bool hasKey = separator != std::string::npos && separator > 0;
     const float keyColumn = hasKey ? std::min(width * 0.4f, font_.height * 8.6f) : 0.0f;
-    const float rowPitch = std::min(font_.height * 1.5f, static_cast<float>(bounds.size.height));
+    const float rowPitch = std::min(font_.height * 1.5f, bounds.height);
     const float topEdge = std::max(0.0f, (rowPitch - font_.height) * 0.5f);
     if (hasKey)
     {
@@ -292,11 +148,11 @@ void Label::paintInfoRow(CGContextRef context, CGRect bounds)
                     font_.height);
 }
 
-void Label::paintNoteTokens(CGContextRef context, CGRect bounds)
+void Label::paintNoteTokens(st::Canvas& context, Rect bounds)
 {
     // The chord's notes as a typeset sequence: each pitch class in a medium
     // weight with its octave as a small figure beside it; accent while live.
-    const float height = static_cast<float>(bounds.size.height);
+    const float height = bounds.height;
     const float scale = height / 26.0f;
     const auto pitchFont = st::uiFont(std::max(7.0f, 17.0f * scale), true, 0.01f);
     const auto octaveFont = st::uiFont(std::max(7.0f, 11.5f * scale), false, 0.02f);
@@ -320,7 +176,7 @@ void Label::paintNoteTokens(CGContextRef context, CGRect bounds)
         const auto octave = note.substr(split);
         const float pitchWidth = st::stringWidth(pitchFont, pitch);
         const float octaveWidth = st::stringWidth(octaveFont, octave);
-        if (x + pitchWidth + octaveWidth > static_cast<float>(bounds.size.width))
+        if (x + pitchWidth + octaveWidth > bounds.width)
             break;
         st::drawLine(context, pitch, pitchFont, live_ ? st::accent : st::textBright, std::round(x), baseline);
         st::drawLine(context, octave, octaveFont, live_ ? st::accent.withAlpha(0.7f) : st::dim,
@@ -360,11 +216,9 @@ void PillButton::setIndicator(st::Colour colour)
     repaint();
 }
 
-void PillButton::mouseDown(CGPoint, NSEvent*) {}
-
-void PillButton::mouseUp(CGPoint position, NSEvent*)
+void PillButton::mouseUp(const MouseEvent& event)
 {
-    if (CGRectContainsPoint(localBounds(), position))
+    if (localBounds().contains(event.position))
         activate();
 }
 
@@ -378,9 +232,9 @@ void PillButton::activate()
         onClick();
 }
 
-void PillButton::paint(CGContextRef context, CGRect area)
+void PillButton::paint(st::Canvas& context, Rect area)
 {
-    const float height = static_cast<float>(area.size.height);
+    const float height = area.height;
     const float scale = height / std::max(1.0f, designHeight_);
     const float radius = std::min(cornerRadius_ * scale, height * 0.5f);
     const bool enabled = isEnabled();
@@ -391,25 +245,25 @@ void PillButton::paint(CGContextRef context, CGRect area)
     else if (enabled && hover)
         fill = fill_.isTransparent() ? st::white.withAlpha(0.04f) : fill_.brighter(0.07f);
     if (!fill.isTransparent())
-        st::fillRoundedRect(context, area, radius, enabled ? fill : fill.withMultipliedAlpha(0.45f));
+        context.fillRoundedRect(area, radius, enabled ? fill : fill.withMultipliedAlpha(0.45f));
     if (!outline_.isTransparent())
-        st::strokeRoundedRect(context, CGRectInset(area, 0.5, 0.5), radius, 1.0f,
+        context.strokeRoundedRect(area.inset(0.5f, 0.5f), radius, 1.0f,
                               enabled ? outline_ : outline_.withMultipliedAlpha(0.45f));
 
     const auto font = st::uiFont(std::max(6.0f, designFontHeight_ * scale), true, 0.08f);
-    CGRect content = CGRectInset(area, std::round(4.0f * scale), 0);
+    Rect content = area.inset(std::round(4.0f * scale), 0.0f);
     const auto colour = enabled ? textColour_ : textColour_.withMultipliedAlpha(0.5f);
     if (!indicator_.isTransparent())
     {
         const float dot = 6.0f * scale;
         const float gap = 7.0f * scale;
         const float textWidth = st::stringWidth(font, text_);
-        const float unitWidth = std::min(static_cast<float>(content.size.width), dot + gap + textWidth);
-        const float leftEdge = static_cast<float>(content.origin.x) + (static_cast<float>(content.size.width) - unitWidth) * 0.5f;
-        st::fillEllipse(context, CGRectMake(leftEdge, CGRectGetMidY(area) - dot * 0.5f, dot, dot),
+        const float unitWidth = std::min(content.width, dot + gap + textWidth);
+        const float leftEdge = content.x + (content.width - unitWidth) * 0.5f;
+        context.fillEllipse(Rect(leftEdge, area.midY() - dot * 0.5f, dot, dot),
                         enabled ? indicator_ : indicator_.withMultipliedAlpha(0.5f));
-        const CGRect textBox = CGRectMake(std::round(leftEdge + dot + gap), area.origin.y,
-                                          std::round(unitWidth - dot - gap) + 2, area.size.height);
+        const Rect textBox = Rect(std::round(leftEdge + dot + gap), area.y,
+                                          std::round(unitWidth - dot - gap) + 2, area.height);
         st::drawFitted(context, text_, textBox, font, colour, st::centredLeft, 1, 0.85f);
         return;
     }
@@ -419,11 +273,9 @@ void PillButton::paint(CGContextRef context, CGRect area)
 // ================================================================ step button
 StepButton::StepButton(std::string identifier, Glyph glyph) : Widget(std::move(identifier)), glyph_(glyph) {}
 
-void StepButton::mouseDown(CGPoint, NSEvent*) {}
-
-void StepButton::mouseUp(CGPoint position, NSEvent*)
+void StepButton::mouseUp(const MouseEvent& event)
 {
-    if (CGRectContainsPoint(localBounds(), position))
+    if (localBounds().contains(event.position))
         activate();
 }
 
@@ -433,33 +285,32 @@ void StepButton::activate()
         onClick();
 }
 
-void StepButton::paint(CGContextRef context, CGRect area)
+void StepButton::paint(st::Canvas& context, Rect area)
 {
-    const float side = static_cast<float>(std::min(area.size.width, area.size.height));
-    const CGRect circle = CGRectInset(CGRectMake(CGRectGetMidX(area) - side * 0.5f, CGRectGetMidY(area) - side * 0.5f,
-                                                 side, side), 0.5, 0.5);
+    const float side = std::min(area.width, area.height);
+    const Rect circle = Rect(area.midX() - side * 0.5f, area.midY() - side * 0.5f, side, side).inset(0.5f, 0.5f);
     const float scale = side / 28.0f;
     if (pressed || hover)
-        st::fillEllipse(context, circle, pressed ? st::accentSoft : st::raisedHover);
-    st::strokeEllipse(context, circle, 1.0f, pressed ? st::accent : hover ? st::border.brighter(0.3f) : st::border);
+        context.fillEllipse(circle, pressed ? st::accentSoft : st::raisedHover);
+    context.strokeEllipse(circle, 1.0f, pressed ? st::accent : hover ? st::border.brighter(0.3f) : st::border);
 
     const auto colour = isEnabled() ? (hover || pressed ? st::textBright : st::text) : st::dim.withAlpha(0.6f);
-    const float cx = static_cast<float>(CGRectGetMidX(area));
-    const float cy = static_cast<float>(CGRectGetMidY(area));
+    const float cx = area.midX();
+    const float cy = area.midY();
     const float barLength = std::max(4.0f, 9.0f * scale);
     const float barThickness = std::max(1.0f, 1.4f * scale);
     if (glyph_ == Glyph::minus || glyph_ == Glyph::plus)
     {
-        st::fillRect(context, CGRectMake(cx - barLength * 0.5f, cy - barThickness * 0.5f, barLength, barThickness), colour);
+        context.fillRect(Rect(cx - barLength * 0.5f, cy - barThickness * 0.5f, barLength, barThickness), colour);
         if (glyph_ == Glyph::plus)
-            st::fillRect(context, CGRectMake(cx - barThickness * 0.5f, cy - barLength * 0.5f, barThickness, barLength), colour);
+            context.fillRect(Rect(cx - barThickness * 0.5f, cy - barLength * 0.5f, barThickness, barLength), colour);
         return;
     }
     const float half = 3.6f * scale;
     const float direction = glyph_ == Glyph::next ? 1.0f : -1.0f;
-    st::strokePolyline(context, { CGPointMake(cx - direction * half * 0.45f, cy - half),
-                                  CGPointMake(cx + direction * half * 0.55f, cy),
-                                  CGPointMake(cx - direction * half * 0.45f, cy + half) },
+    context.strokePolyline({ Point(cx - direction * half * 0.45f, cy - half),
+                                  Point(cx + direction * half * 0.55f, cy),
+                                  Point(cx - direction * half * 0.45f, cy + half) },
                        barThickness, colour);
 }
 
@@ -475,66 +326,70 @@ void TakeRow::setTake(int takeNumber, int noteCount)
     repaint();
 }
 
-void TakeRow::mouseDown(CGPoint position, NSEvent*)
+void TakeRow::mouseDown(const MouseEvent& event)
 {
-    downAt_ = position;
+    downAt_ = event.position;
     dragStarted_ = false;
 }
 
-void TakeRow::mouseDrag(CGPoint position, NSEvent* event)
+void TakeRow::mouseDrag(const MouseEvent& event)
 {
-    if (dragStarted_ || std::hypot(position.x - downAt_.x, position.y - downAt_.y) < 4.0)
+    const Point position = event.position;
+    if (dragStarted_ || std::hypot(position.x - downAt_.x, position.y - downAt_.y) < 4.0f)
         return;
     dragStarted_ = true;
     if (onDragStart && !onDragStart(event))
         dragStarted_ = false;
 }
 
-void TakeRow::mouseUp(CGPoint, NSEvent*)
+void TakeRow::mouseUp(const MouseEvent&)
 {
     dragStarted_ = false;
 }
 
-void TakeRow::rightMouseDown(CGPoint position, NSEvent*)
+void TakeRow::rightMouseDown(const MouseEvent& event)
 {
-    NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
-    menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    if (peer() == nullptr)
+        return;
+#ifdef _WIN32
+    const char* title = "Show in Explorer";
+#else
+    const char* title = "Show in Finder";
+#endif
     auto reveal = onReveal;
-    menuTarget_ = [[CEActionTarget alloc] initWithAction:[reveal](NSInteger) { if (reveal) reveal(); }];
-    NSMenuItem* item = [menu addItemWithTitle:@"Show in Finder" action:@selector(invoke:) keyEquivalent:@""];
-    item.target = menuTarget_;
-    [menu popUpMenuPositioningItem:nil atLocation:NSPointFromCGPoint(position) inView:view_];
+    if (peer()->showMenu({ { MenuEntry::Kind::item, title, 1, false } }, event.position, 0.0f) == 1 && reveal)
+        reveal();
 }
 
-void TakeRow::paint(CGContextRef context, CGRect area)
+void TakeRow::paint(st::Canvas& context, Rect area)
 {
-    const float scale = static_cast<float>(area.size.height) / 20.0f;
+    const float scale = area.height / 20.0f;
     if (hover || pressed)
-        st::fillRoundedRect(context, area, 3.0f * scale, pressed ? st::accentSoft : st::white.withAlpha(0.04f));
-    st::fillRect(context, CGRectMake(area.origin.x, CGRectGetMaxY(area) - 1.0, area.size.width, 1.0), st::hairline);
+        context.fillRoundedRect(area, 3.0f * scale, pressed ? st::accentSoft : st::white.withAlpha(0.04f));
+    context.fillRect(Rect(area.x, area.maxY() - 1.0f, area.width, 1.0f), st::hairline);
 
     const auto label = st::uiFont(std::max(6.0f, 9.5f * scale), true, 0.08f);
     const auto quiet = st::uiFont(std::max(6.0f, 9.5f * scale), false, 0.04f);
     const float arrowWidth = 9.0f * scale;
-    const float arrowX = static_cast<float>(CGRectGetMaxX(area)) - arrowWidth;
-    const float cy = static_cast<float>(CGRectGetMidY(area));
+    const float arrowX = area.maxX() - arrowWidth;
+    const float cy = area.midY();
     const float stroke = std::max(1.0f, 1.2f * scale);
-    st::strokePolyline(context, { CGPointMake(arrowX, cy), CGPointMake(arrowX + arrowWidth, cy) }, stroke, st::accent);
-    st::strokePolyline(context, { CGPointMake(arrowX + arrowWidth - 3.0f * scale, cy - 3.0f * scale),
-                                  CGPointMake(arrowX + arrowWidth, cy),
-                                  CGPointMake(arrowX + arrowWidth - 3.0f * scale, cy + 3.0f * scale) },
+    context.strokePolyline({ Point(arrowX, cy), Point(arrowX + arrowWidth, cy) }, stroke, st::accent);
+    context.strokePolyline({ Point(arrowX + arrowWidth - 3.0f * scale, cy - 3.0f * scale),
+                                  Point(arrowX + arrowWidth, cy),
+                                  Point(arrowX + arrowWidth - 3.0f * scale, cy + 3.0f * scale) },
                        stroke, st::accent);
-    st::drawFitted(context, "DRAG", CGRectMake(area.origin.x, area.origin.y, std::round(arrowX - 5.0f * scale) - area.origin.x,
-                                               area.size.height),
+    st::drawFitted(context, "DRAG", Rect(area.x, area.y, std::round(arrowX - 5.0f * scale) - area.x,
+                                               area.height),
                    label, st::accent, st::centredRight, 1, 1.0f);
     if (takeNumber_ > 0)
     {
         const auto takeText = "TAKE " + std::to_string(takeNumber_);
         st::drawFitted(context, takeText, area, label, st::text, st::centredLeft, 1, 1.0f);
         const float takeWidth = st::stringWidth(label, takeText);
-        CGRect rest = area;
-        rest.origin.x += std::round(takeWidth + 8.0f * scale);
-        rest.size.width -= std::round(takeWidth + 8.0f * scale);
+        Rect rest = area;
+        rest.x += std::round(takeWidth + 8.0f * scale);
+        rest.width -= std::round(takeWidth + 8.0f * scale);
         st::drawFitted(context, std::to_string(noteCount_) + (noteCount_ == 1 ? " note" : " notes"), rest, quiet,
                        st::muted, st::centredLeft, 1, 1.0f);
     }
@@ -553,17 +408,17 @@ void ComboBox::clear()
 
 void ComboBox::addItem(const std::string& text, int itemId)
 {
-    entries_.push_back({ Entry::Kind::item, text, itemId });
+    entries_.push_back({ MenuEntry::Kind::item, text, itemId, false });
 }
 
 void ComboBox::addSectionHeading(const std::string& text)
 {
-    entries_.push_back({ Entry::Kind::heading, text, 0 });
+    entries_.push_back({ MenuEntry::Kind::heading, text, 0, false });
 }
 
 void ComboBox::addSeparator()
 {
-    entries_.push_back({ Entry::Kind::separator, {}, 0 });
+    entries_.push_back({ MenuEntry::Kind::separator, {}, 0, false });
 }
 
 void ComboBox::setSelectedId(int itemId)
@@ -585,7 +440,7 @@ void ComboBox::setText(const std::string& text)
 std::string ComboBox::displayedText() const
 {
     for (const auto& entry : entries_)
-        if (entry.kind == Entry::Kind::item && entry.itemId == selectedId_)
+        if (entry.kind == MenuEntry::Kind::item && entry.itemId == selectedId_)
             return entry.text;
     return freeText_;
 }
@@ -594,7 +449,7 @@ std::vector<int> ComboBox::itemIds() const
 {
     std::vector<int> ids;
     for (const auto& entry : entries_)
-        if (entry.kind == Entry::Kind::item)
+        if (entry.kind == MenuEntry::Kind::item)
             ids.push_back(entry.itemId);
     return ids;
 }
@@ -602,7 +457,7 @@ std::vector<int> ComboBox::itemIds() const
 bool ComboBox::selectItem(int itemId)
 {
     for (const auto& entry : entries_)
-        if (entry.kind == Entry::Kind::item && entry.itemId == itemId)
+        if (entry.kind == MenuEntry::Kind::item && entry.itemId == itemId)
         {
             const bool changed = selectedId_ != itemId;
             selectedId_ = itemId;
@@ -615,78 +470,58 @@ bool ComboBox::selectItem(int itemId)
     return false;
 }
 
-void ComboBox::mouseDown(CGPoint, NSEvent*)
+std::vector<MenuEntry> ComboBox::menuEntries() const
 {
-    if (!isEnabled())
+    auto entries = entries_;
+    for (auto& entry : entries)
+        entry.checked = entry.kind == MenuEntry::Kind::item && entry.itemId == selectedId_;
+    return entries;
+}
+
+void ComboBox::mouseDown(const MouseEvent&)
+{
+    if (!isEnabled() || peer() == nullptr)
         return;
-    NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
-    menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    menu.autoenablesItems = NO;
-    menu.font = (__bridge NSFont*) st::ctFont(st::uiFont(std::max(14.0f, fontHeight_ * 1.15f)));
-    menuTarget_ = [[CEActionTarget alloc] initWithAction:[this](NSInteger tag) { selectItem(static_cast<int>(tag)); }];
-    for (const auto& entry : entries_)
-    {
-        if (entry.kind == Entry::Kind::separator)
-        {
-            [menu addItem:[NSMenuItem separatorItem]];
-            continue;
-        }
-        NSString* title = [NSString stringWithUTF8String:entry.text.c_str()];
-        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
-        if (entry.kind == Entry::Kind::heading)
-        {
-            item.enabled = NO;
-            item.attributedTitle = [[NSAttributedString alloc]
-                initWithString:title
-                    attributes:@{ NSFontAttributeName : (__bridge NSFont*) st::ctFont(st::captionFont(11.0f, 0.12f)) }];
-        }
-        else
-        {
-            item.action = @selector(invoke:);
-            item.target = menuTarget_;
-            item.tag = entry.itemId;
-            item.enabled = YES;
-            item.state = entry.itemId == selectedId_ ? NSControlStateValueOn : NSControlStateValueOff;
-        }
-        [menu addItem:item];
-    }
     menuOpen_ = true;
     repaint();
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, view_.bounds.size.height + 2) inView:view_];
+    const int chosen = peer()->showMenu(menuEntries(), Point(0.0f, localBounds().height + 2.0f),
+                                        std::max(14.0f, fontHeight_ * 1.15f));
     menuOpen_ = false;
     pressed = false;
     repaint();
+    if (chosen != 0)
+        selectItem(chosen);
 }
 
-void ComboBox::paint(CGContextRef context, CGRect area)
+void ComboBox::paint(st::Canvas& context, Rect area)
 {
     // A selector is a line of text with a rule under it: no box.
-    const float height = static_cast<float>(area.size.height);
+    const float height = area.height;
     const float scale = height / 30.0f;
     const bool focused = menuOpen_;
     if (hover || pressed)
-        st::fillRoundedRect(context, area, 4.0f * scale, st::white.withAlpha(pressed ? 0.05f : 0.03f));
+        context.fillRoundedRect(area, 4.0f * scale, st::white.withAlpha(pressed ? 0.05f : 0.03f));
     auto rule = hover ? st::border.brighter(0.35f) : st::border;
     if (emphasis_)
         rule = st::accent.withAlpha(hover ? 0.75f : 0.5f);
     if (focused)
         rule = st::accent;
     const float ruleHeight = focused ? std::max(1.0f, 1.5f * scale) : 1.0f;
-    st::fillRect(context, CGRectMake(area.origin.x, CGRectGetMaxY(area) - ruleHeight, area.size.width, ruleHeight),
+    context.fillRect(Rect(area.x, area.maxY() - ruleHeight, area.width, ruleHeight),
                  isEnabled() ? rule : rule.withMultipliedAlpha(0.5f));
 
     const float chevronWidth = 6.0f * scale;
     const float chevronHeight = 3.5f * scale;
-    const float cx = static_cast<float>(CGRectGetMaxX(area)) - 8.0f * scale;
-    const float cy = static_cast<float>(CGRectGetMidY(area));
-    st::strokePolyline(context, { CGPointMake(cx - chevronWidth * 0.5f, cy - chevronHeight * 0.5f),
-                                  CGPointMake(cx, cy + chevronHeight * 0.5f),
-                                  CGPointMake(cx + chevronWidth * 0.5f, cy - chevronHeight * 0.5f) },
+    const float cx = area.maxX() - 8.0f * scale;
+    const float cy = area.midY();
+    context.strokePolyline({ Point(cx - chevronWidth * 0.5f, cy - chevronHeight * 0.5f),
+                                  Point(cx, cy + chevronHeight * 0.5f),
+                                  Point(cx + chevronWidth * 0.5f, cy - chevronHeight * 0.5f) },
                        std::max(1.0f, 1.3f * scale), focused ? st::accent : hover ? st::text : st::dim);
 
     const auto font = emphasis_ ? st::uiFont(fontHeight_ * 1.42f, true, -0.005f) : st::uiFont(fontHeight_ * 1.04f);
-    const CGRect textArea = CGRectMake(area.origin.x, area.origin.y,
-                                       std::max(1.0, area.size.width - std::round(20.0f * scale)), area.size.height);
+    const Rect textArea = Rect(area.x, area.y,
+                                       std::max(1.0f, area.width - std::round(20.0f * scale)), area.height);
     const int lines = std::max(1, static_cast<int>(height / font.height));
     st::drawFitted(context, displayedText(), textArea, font, isEnabled() ? st::text : st::text.withMultipliedAlpha(0.5f),
                    st::centredLeft, lines, 0.0f);
@@ -700,7 +535,7 @@ Slider::Slider(std::string identifier, double minimum, double maximum)
 
 float Slider::thumbRadius() const
 {
-    return std::max(4.0f, std::round(static_cast<float>(localBounds().size.height) * 0.2f));
+    return std::max(4.0f, std::round(localBounds().height * 0.2f));
 }
 
 void Slider::setValue(double value)
@@ -727,75 +562,63 @@ bool Slider::setValueFromUser(double value)
 void Slider::setFromPosition(float x)
 {
     const float indent = thumbRadius();
-    const float width = std::max(1.0f, static_cast<float>(localBounds().size.width) - indent * 2.0f);
+    const float width = std::max(1.0f, localBounds().width - indent * 2.0f);
     const double proportion = std::clamp((x - indent) / width, 0.0f, 1.0f);
     setValueFromUser(minimum_ + proportion * (maximum_ - minimum_));
 }
 
-void Slider::mouseDown(CGPoint position, NSEvent*)
+void Slider::mouseDown(const MouseEvent& event)
 {
     if (isEnabled())
-        setFromPosition(static_cast<float>(position.x));
+        setFromPosition(event.position.x);
 }
 
-void Slider::mouseDrag(CGPoint position, NSEvent*)
+void Slider::mouseDrag(const MouseEvent& event)
 {
     if (isEnabled())
-        setFromPosition(static_cast<float>(position.x));
+        setFromPosition(event.position.x);
 }
 
-void Slider::mouseUp(CGPoint, NSEvent*) {}
-
-void Slider::paint(CGContextRef context, CGRect area)
+void Slider::paint(st::Canvas& context, Rect area)
 {
     const float indent = thumbRadius();
     const float x = indent;
-    const float width = std::max(1.0f, static_cast<float>(area.size.width) - indent * 2.0f);
-    const float height = static_cast<float>(area.size.height);
+    const float width = std::max(1.0f, area.width - indent * 2.0f);
+    const float height = area.height;
     const float scale = height / 28.0f;
     const float trackHeight = std::max(1.0f, 2.0f * scale);
     const float centreY = height * 0.5f;
     const float position = x + static_cast<float>((value_ - minimum_) / (maximum_ - minimum_)) * width;
-    const CGRect trackArea = CGRectMake(x, centreY - trackHeight * 0.5f, width, trackHeight);
-    st::fillRoundedRect(context, trackArea, trackHeight * 0.5f, st::track);
-    st::fillRoundedRect(context, CGRectMake(x, trackArea.origin.y, position - x, trackHeight), trackHeight * 0.5f, st::accent);
+    const Rect trackArea = Rect(x, centreY - trackHeight * 0.5f, width, trackHeight);
+    context.fillRoundedRect(trackArea, trackHeight * 0.5f, st::track);
+    context.fillRoundedRect(Rect(x, trackArea.y, position - x, trackHeight), trackHeight * 0.5f, st::accent);
     const float radius = thumbRadius();
-    const CGRect thumb = CGRectMake(position - radius, centreY - radius, radius * 2.0f, radius * 2.0f);
-    st::fillEllipse(context, thumb, st::textBright);
-    st::strokeEllipse(context, CGRectInset(thumb, 0.5, 0.5), 1.0f, st::background.withAlpha(0.6f));
+    const Rect thumb = Rect(position - radius, centreY - radius, radius * 2.0f, radius * 2.0f);
+    context.fillEllipse(thumb, st::textBright);
+    context.strokeEllipse(thumb.inset(0.5f, 0.5f), 1.0f, st::background.withAlpha(0.6f));
 }
 
 // ============================================================= status pill
-void StatusPill::paint(CGContextRef context, CGRect area)
+void StatusPill::paint(st::Canvas& context, Rect area)
 {
     // "N/A": the MIDI FX build cannot sound; this is a status, not a switch.
-    const float scale = static_cast<float>(area.size.height) / 28.0f;
-    st::strokeRoundedRect(context, CGRectInset(area, 0.5, 0.5), 4.0f * scale, 1.0f, st::hairline.brighter(0.1f));
+    const float scale = area.height / 28.0f;
+    context.strokeRoundedRect(area.inset(0.5f, 0.5f), 4.0f * scale, 1.0f, st::hairline.brighter(0.1f));
     st::drawFitted(context, "N/A", area, st::uiFont(std::max(6.0f, 9.0f * scale), true, 0.1f), st::dim, st::centred, 1, 1.0f);
 }
 
 // ================================================================= wordmark
-void Wordmark::paint(CGContextRef context, CGRect area)
+void Wordmark::paint(st::Canvas& context, Rect area)
 {
     // The ink of the word is centred on the header's centre line; it starts
     // exactly on the page's left edge.
-    const float scale = static_cast<float>(area.size.height) / 40.0f;
+    const float scale = area.height / 40.0f;
     st::Font font { st::Face::wordmark, 27.0f * scale, 0.0f };
-    CFStringRef string = CFSTR("Chord Engine");
-    const void* keys[] = { kCTFontAttributeName };
-    const void* values[] = { st::ctFont(font) };
-    CFDictionaryRef attributes = CFDictionaryCreate(nullptr, keys, values, 1, &kCFTypeDictionaryKeyCallBacks,
-                                                    &kCFTypeDictionaryValueCallBacks);
-    CFAttributedStringRef attributed = CFAttributedStringCreate(nullptr, string, attributes);
-    CTLineRef line = CTLineCreateWithAttributedString(attributed);
-    const CGRect ink = CTLineGetBoundsWithOptions(line, kCTLineBoundsUseGlyphPathBounds);
-    CFRelease(line);
-    CFRelease(attributed);
-    CFRelease(attributes);
-    if (CGRectIsEmpty(ink))
+    const Rect ink = st::inkBounds(font, "Chord Engine");
+    if (ink.isEmpty())
         return;
-    const float x = static_cast<float>(-ink.origin.x);
-    const float baseline = static_cast<float>(area.size.height) * 0.5f + static_cast<float>(ink.origin.y + ink.size.height * 0.5);
+    const float x = -ink.x;
+    const float baseline = area.height * 0.5f + (ink.y + ink.height * 0.5f);
     st::drawLine(context, "Chord Engine", font, st::text, x, baseline);
 }
 
@@ -807,12 +630,12 @@ Piano::~Piano()
     releaseHeldNote();
 }
 
-CGRect Piano::keyboardBounds() const
+Rect Piano::keyboardBounds() const
 {
     // The keys run edge to edge; the top 6 px (design) hold the felt rail.
-    const CGRect local = localBounds();
-    const float scale = static_cast<float>(local.size.width) / 720.0f;
-    return CGRectMake(0, 6.0f * scale, local.size.width, local.size.height - 6.0f * scale);
+    const Rect local = localBounds();
+    const float scale = local.width / 720.0f;
+    return Rect(0.0f, 6.0f * scale, local.width, local.height - 6.0f * scale);
 }
 
 bool Piano::isWhiteKey(int note)
@@ -842,27 +665,27 @@ int Piano::whiteKeysBefore(int note) const
 
 float Piano::whiteKeyWidth() const
 {
-    return static_cast<float>(keyboardBounds().size.width) / static_cast<float>(std::max(1, whiteKeyCount()));
+    return keyboardBounds().width / static_cast<float>(std::max(1, whiteKeyCount()));
 }
 
-CGRect Piano::whiteKeyRect(int whiteIndex) const
+Rect Piano::whiteKeyRect(int whiteIndex) const
 {
-    const CGRect keys = keyboardBounds();
+    const Rect keys = keyboardBounds();
     const float width = whiteKeyWidth();
-    return CGRectMake(keys.origin.x + whiteIndex * width, keys.origin.y, width - 1.0f, keys.size.height);
+    return Rect(keys.x + whiteIndex * width, keys.y, width - 1.0f, keys.height);
 }
 
-CGRect Piano::blackKeyRect(int note) const
+Rect Piano::blackKeyRect(int note) const
 {
-    const CGRect keys = keyboardBounds();
+    const Rect keys = keyboardBounds();
     const float width = whiteKeyWidth();
-    const float x = static_cast<float>(keys.origin.x) + whiteKeysBefore(note) * width - width * 0.29f;
-    return CGRectMake(x, keys.origin.y, width * 0.58f, keys.size.height * 0.62f);
+    const float x = static_cast<float>(keys.x) + whiteKeysBefore(note) * width - width * 0.29f;
+    return Rect(x, keys.y, width * 0.58f, keys.height * 0.62f);
 }
 
-int Piano::noteAtPosition(CGPoint position) const
+int Piano::noteAtPosition(Point position) const
 {
-    if (!CGRectContainsPoint(keyboardBounds(), position))
+    if (!keyboardBounds().contains(position))
         return -1;
     float nearestBlack = 1.0e9f;
     int blackNote = -1;
@@ -870,10 +693,10 @@ int Piano::noteAtPosition(CGPoint position) const
     {
         if (isWhiteKey(note))
             continue;
-        const CGRect black = blackKeyRect(note);
-        if (CGRectContainsPoint(black, position))
+        const Rect black = blackKeyRect(note);
+        if (black.contains(position))
         {
-            const float distance = std::abs(static_cast<float>(position.x - CGRectGetMidX(black)));
+            const float distance = std::abs(position.x - black.midX());
             if (distance < nearestBlack)
             {
                 nearestBlack = distance;
@@ -888,11 +711,27 @@ int Piano::noteAtPosition(CGPoint position) const
     {
         if (!isWhiteKey(note))
             continue;
-        if (CGRectContainsPoint(whiteKeyRect(whiteIndex), position))
+        if (whiteKeyRect(whiteIndex).contains(position))
             return note;
         ++whiteIndex;
     }
     return -1;
+}
+
+Point Piano::keyCentre(int note) const
+{
+    // Scan the lower part (white keys) and the upper part (black keys).
+    const Rect bounds = localBounds();
+    for (const float y : { bounds.height * 0.85f, bounds.height * 0.3f })
+        for (float x = 0.5f; x < bounds.width; x += 1.0f)
+            if (noteAtPosition({ x, y }) == note)
+            {
+                float end = x;
+                while (end + 1.0f < bounds.width && noteAtPosition({ end + 1.0f, y }) == note)
+                    end += 1.0f;
+                return { (x + end) * 0.5f, y };
+            }
+    return { -1.0f, -1.0f };
 }
 
 void Piano::pressNote(int note)
@@ -918,20 +757,20 @@ void Piano::releaseHeldNote()
     repaint();
 }
 
-void Piano::mouseDown(CGPoint position, NSEvent*)
+void Piano::mouseDown(const MouseEvent& event)
 {
-    const int note = noteAtPosition(position);
+    const int note = noteAtPosition(event.position);
     if (note >= 0)
         pressNote(note);
 }
 
-void Piano::mouseDrag(CGPoint position, NSEvent*)
+void Piano::mouseDrag(const MouseEvent& event)
 {
     // Sliding onto another key releases the old note and sounds the new one;
     // sliding off the keys releases without a retrigger.
     if (heldNote_ < 0)
         return;
-    const int note = noteAtPosition(position);
+    const int note = noteAtPosition(event.position);
     if (note == heldNote_)
         return;
     if (note >= 0)
@@ -940,7 +779,7 @@ void Piano::mouseDrag(CGPoint position, NSEvent*)
         releaseHeldNote();
 }
 
-void Piano::mouseUp(CGPoint, NSEvent*)
+void Piano::mouseUp(const MouseEvent&)
 {
     releaseHeldNote();
 }
@@ -953,12 +792,12 @@ void Piano::setPreviewNotes(const chordengine::core::NoteSet& notes)
     repaint();
 }
 
-void Piano::paint(CGContextRef context, CGRect area)
+void Piano::paint(st::Canvas& context, Rect area)
 {
-    const float scale = static_cast<float>(area.size.width) / 720.0f;
-    const CGRect keys = keyboardBounds();
-    st::fillRect(context, CGRectMake(0, 0, area.size.width, keys.origin.y), st::pianoBed);
-    st::fillRect(context, CGRectMake(0, 0, area.size.width, 1.0), st::accent.withAlpha(0.35f));
+    const float scale = area.width / 720.0f;
+    const Rect keys = keyboardBounds();
+    context.fillRect(Rect(0.0f, 0.0f, area.width, keys.y), st::pianoBed);
+    context.fillRect(Rect(0.0f, 0.0f, area.width, 1.0f), st::accent.withAlpha(0.35f));
 
     const float labelHeight = std::max(8.0f, 11.0f * scale);
     const float keyRadius = 3.0f * scale;
@@ -978,45 +817,41 @@ void Piano::paint(CGContextRef context, CGRect area)
     {
         if (!isWhiteKey(note))
             continue;
-        const CGRect key = whiteKeyRect(whiteIndex);
+        const Rect key = whiteKeyRect(whiteIndex);
         const auto [trigger, generated, preview] = stateOf(note);
         const bool lit = trigger || generated;
-        CGPathRef shape = st::createBottomRoundedPath(key, keyRadius);
         if (lit)
         {
             const auto colour = trigger ? st::triggerWhiteKey : st::chordWhiteKey;
-            st::fillPathVerticalGradient(context, shape, key, colour, colour);
+            context.fillBottomRoundedGradient(key, keyRadius, colour, colour);
         }
         else
-            st::fillPathVerticalGradient(context, shape, key, preview ? st::previewWhite : st::whiteKey,
-                                         preview ? st::previewWhite.darker(0.04f) : st::whiteKeyShade);
-        CGPathRelease(shape);
+            context.fillBottomRoundedGradient(key, keyRadius, preview ? st::previewWhite : st::whiteKey,
+                                              preview ? st::previewWhite.darker(0.04f) : st::whiteKeyShade);
         if (note % 12 == 0)
             st::drawFitted(context, noteName(note),
-                           CGRectMake(key.origin.x, CGRectGetMaxY(key) - labelHeight - 3.0f * scale, key.size.width, labelHeight),
+                           Rect(key.x, key.maxY() - labelHeight - 3.0f * scale, key.width, labelHeight),
                            labelFont, lit ? st::onAccent : preview ? st::onAccent.withAlpha(0.7f) : st::whiteKeyLabel,
                            st::centred, 1, 1.0f);
         ++whiteIndex;
     }
 
-    st::fillRect(context, CGRectMake(keys.origin.x, keys.origin.y, keys.size.width, 2.0f * scale), st::black.withAlpha(0.18f));
+    context.fillRect(Rect(keys.x, keys.y, keys.width, 2.0f * scale), st::black.withAlpha(0.18f));
 
     for (int note = ChordEngineAudioProcessor::pianoFirstNote; note <= ChordEngineAudioProcessor::pianoLastNote; ++note)
     {
         if (isWhiteKey(note))
             continue;
-        const CGRect key = blackKeyRect(note);
+        const Rect key = blackKeyRect(note);
         const auto [trigger, generated, preview] = stateOf(note);
-        CGPathRef shape = st::createBottomRoundedPath(key, keyRadius);
         if (trigger || generated)
         {
             const auto colour = trigger ? st::triggerBlackKey : st::chordBlackKey;
-            st::fillPathVerticalGradient(context, shape, key, colour, colour);
+            context.fillBottomRoundedGradient(key, keyRadius, colour, colour);
         }
         else
-            st::fillPathVerticalGradient(context, shape, key, preview ? st::previewBlack.brighter(0.15f) : st::blackKeyTop,
-                                         preview ? st::previewBlack : st::blackKey);
-        CGPathRelease(shape);
+            context.fillBottomRoundedGradient(key, keyRadius, preview ? st::previewBlack.brighter(0.15f) : st::blackKeyTop,
+                                              preview ? st::previewBlack : st::blackKey);
     }
 }
 
@@ -1057,24 +892,24 @@ std::string PackList::actionText(const chordengine::packs::PackListing& listing,
     return {};
 }
 
-CGRect PackList::actionBounds(int row) const
+Rect PackList::actionBounds(int row) const
 {
     const int height = rowHeight();
     const float width = std::round(140.0f * scale_);
     const float buttonHeight = std::round(28.0f * scale_);
-    return CGRectMake(localBounds().size.width - width - std::round(8.0f * scale_),
+    return Rect(localBounds().width - width - std::round(8.0f * scale_),
                       row * height + std::floor((height - buttonHeight) / 2.0f), width, buttonHeight);
 }
 
-int PackList::actionRowAt(CGPoint position) const
+int PackList::actionRowAt(Point position) const
 {
     for (int row = 0; row < static_cast<int>(listings_.size()); ++row)
-        if (CGRectContainsPoint(actionBounds(row), position))
+        if (actionBounds(row).contains(position))
             return row;
     return -1;
 }
 
-void PackList::mouseMove(CGPoint position)
+void PackList::mouseMove(Point position)
 {
     const int row = actionRowAt(position);
     if (row != hoverRow_)
@@ -1084,29 +919,29 @@ void PackList::mouseMove(CGPoint position)
     }
 }
 
-void PackList::mouseUp(CGPoint position, NSEvent*)
+void PackList::mouseUp(const MouseEvent& event)
 {
-    const int row = actionRowAt(position);
+    const int row = actionRowAt(event.position);
     if (row >= 0 && onAction)
         onAction(row);
 }
 
-void PackList::paint(CGContextRef context, CGRect area)
+void PackList::paint(st::Canvas& context, Rect area)
 {
     using chordengine::packs::PackStatus;
     const int height = rowHeight();
-    const float width = static_cast<float>(area.size.width);
+    const float width = area.width;
     for (int row = 0; row < static_cast<int>(listings_.size()); ++row)
     {
         const auto& listing = listings_[static_cast<std::size_t>(row)];
         const float y = static_cast<float>(row * height);
-        st::fillRect(context, CGRectMake(0, y + height - 1, width, 1), st::hairline);
+        context.fillRect(Rect(0.0f, y + static_cast<float>(height) - 1.0f, width, 1.0f), st::hairline);
 
         const float tileSize = std::round(40.0f * scale_);
-        const CGRect tile = CGRectMake(0, y + std::floor((height - tileSize) / 2.0f), tileSize, tileSize);
+        const Rect tile = Rect(0.0f, y + std::floor((static_cast<float>(height) - tileSize) / 2.0f), tileSize, tileSize);
         const bool owned = listing.status == PackStatus::builtIn || listing.status == PackStatus::installed
             || listing.status == PackStatus::updateAvailable;
-        st::fillRoundedRect(context, tile, 6.0f * scale_, owned ? st::accent.withAlpha(0.18f) : st::raised);
+        context.fillRoundedRect(tile, 6.0f * scale_, owned ? st::accent.withAlpha(0.18f) : st::raised);
         std::string initials;
         std::size_t start = 0;
         while (start < listing.name.size() && initials.size() < 2)
@@ -1122,14 +957,14 @@ void PackList::paint(CGContextRef context, CGRect area)
         st::drawFitted(context, initials, tile, st::captionFont(13.0f * scale_, 0.04f), owned ? st::accent : st::dim,
                        st::centred, 1, 1.0f);
 
-        const CGRect action = actionBounds(row);
+        const Rect action = actionBounds(row);
         const float textX = std::round(56.0f * scale_);
-        const float textWidth = static_cast<float>(action.origin.x) - textX - std::round(12.0f * scale_);
-        st::drawFitted(context, listing.name, CGRectMake(textX, y + std::round(13.0f * scale_), textWidth, std::round(18.0f * scale_)),
+        const float textWidth = action.x - textX - std::round(12.0f * scale_);
+        st::drawFitted(context, listing.name, Rect(textX, y + std::round(13.0f * scale_), textWidth, std::round(18.0f * scale_)),
                        st::uiFont(14.0f * scale_, true), st::textBright, st::centredLeft, 1, 1.0f);
         const bool usableStatus = owned || listing.status == PackStatus::available;
         const auto detail = !listing.description.empty() ? listing.statusText + "  -  " + listing.description : listing.statusText;
-        st::drawFitted(context, detail, CGRectMake(textX, y + std::round(34.0f * scale_), textWidth, std::round(16.0f * scale_)),
+        st::drawFitted(context, detail, Rect(textX, y + std::round(34.0f * scale_), textWidth, std::round(16.0f * scale_)),
                        st::uiFont(11.5f * scale_), usableStatus ? st::muted : st::accent, st::centredLeft, 1, 1.0f);
 
         const bool busy = listing.slug == busySlug_;
@@ -1140,14 +975,14 @@ void PackList::paint(CGContextRef context, CGRect area)
         st::Colour labelColour = st::text;
         if (primary && !busy)
         {
-            st::fillRoundedRect(context, action, 4.0f * scale_, hot ? st::accent.brighter(0.1f) : st::accent);
+            context.fillRoundedRect(action, 4.0f * scale_, hot ? st::accent.brighter(0.1f) : st::accent);
             labelColour = st::onAccent;
         }
         else
         {
             if (hot)
-                st::fillRoundedRect(context, action, 4.0f * scale_, st::raisedHover);
-            st::strokeRoundedRect(context, CGRectInset(action, 0.5, 0.5), 4.0f * scale_, 1.0f,
+                context.fillRoundedRect(action, 4.0f * scale_, st::raisedHover);
+            context.strokeRoundedRect(action.inset(0.5f, 0.5f), 4.0f * scale_, 1.0f,
                                   quiet ? st::hairline.brighter(0.2f) : st::border);
             labelColour = quiet ? st::dim : st::text;
         }

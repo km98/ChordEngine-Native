@@ -2,7 +2,7 @@
 #import <ImageIO/ImageIO.h>
 #include <dlfcn.h>
 
-#include "EditorStyle.h"
+#include "EditorStyleApple.h"
 
 #include <algorithm>
 #include <array>
@@ -12,63 +12,19 @@
 
 namespace chordengine::ui::style
 {
-// ---------------------------------------------------------------- colour
 namespace
 {
 std::uint8_t toByte(float value)
 {
     return static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(value)), 0, 255));
 }
-
-Colour make(std::uint8_t a, std::uint8_t r, std::uint8_t g, std::uint8_t b)
-{
-    return Colour((static_cast<std::uint32_t>(a) << 24) | (static_cast<std::uint32_t>(r) << 16)
-                  | (static_cast<std::uint32_t>(g) << 8) | b);
-}
 } // namespace
 
-Colour Colour::withAlpha(float a) const noexcept
-{
-    return make(toByte(std::clamp(a, 0.0f, 1.0f) * 255.0f), r(), g(), b());
-}
-
-Colour Colour::withMultipliedAlpha(float factor) const noexcept
-{
-    return withAlpha(alpha() * factor);
-}
-
-Colour Colour::brighter(float amount) const noexcept
-{
-    const float k = 1.0f / (1.0f + std::max(0.0f, amount));
-    const auto lift = [k](std::uint8_t c) { return static_cast<std::uint8_t>(255 - k * (255 - c)); };
-    return make(static_cast<std::uint8_t>(argb >> 24), lift(r()), lift(g()), lift(b()));
-}
-
-Colour Colour::darker(float amount) const noexcept
-{
-    const float k = 1.0f / (1.0f + std::max(0.0f, amount));
-    const auto drop = [k](std::uint8_t c) { return static_cast<std::uint8_t>(k * c); };
-    return make(static_cast<std::uint8_t>(argb >> 24), drop(r()), drop(g()), drop(b()));
-}
-
-CGColorRef Colour::createCG() const
+CGColorRef createCGColor(Colour colour)
 {
     static CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    const CGFloat components[] = { r() / 255.0, g() / 255.0, b() / 255.0, alpha() };
+    const CGFloat components[] = { colour.r() / 255.0, colour.g() / 255.0, colour.b() / 255.0, colour.alpha() };
     return CGColorCreate(space, components);
-}
-
-Colour displayTone(std::uint32_t modelColour) noexcept
-{
-    switch (modelColour)
-    {
-        case 0xff7fd48a: return sage;
-        case 0xffe0b050: return accent;
-        case 0xffe05a5a: return terracotta;
-        case 0xff8a93a0: return muted;
-        case 0xffe8ebef: return text;
-        default: return Colour(modelColour);
-    }
 }
 
 // ----------------------------------------------------------------- faces
@@ -188,7 +144,7 @@ CFAttributedStringRef createAttributed(const std::string& value, const Font& fon
                                                  static_cast<CFIndex>(value.size()), kCFStringEncodingUTF8, false);
     if (string == nullptr)
         string = CFStringCreateWithCString(nullptr, "", kCFStringEncodingUTF8);
-    CGColorRef cg = colour.createCG();
+    CGColorRef cg = createCGColor(colour);
     const CGFloat kern = font.kerning * font.height;
     CFNumberRef kernNumber = CFNumberCreate(nullptr, kCFNumberCGFloatType, &kern);
     const void* keys[] = { kCTFontAttributeName, kCTForegroundColorAttributeName, kCTKernAttributeName };
@@ -246,152 +202,16 @@ float stringWidth(const Font& font, const std::string& value)
     return static_cast<float>(width);
 }
 
-void drawLine(CGContextRef context, const std::string& value, const Font& font, Colour colour,
-              float x, float baseline, float horizontalScale)
+Rect inkBounds(const Font& font, const std::string& value)
 {
-    if (value.empty() || colour.isTransparent())
-        return;
-    CTLineRef line = createLine(value, font, colour);
-    CGContextSaveGState(context);
-    CGContextTranslateCTM(context, x, baseline);
-    CGContextScaleCTM(context, horizontalScale, -1.0);
-    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
-    CGContextSetTextPosition(context, 0, 0);
-    CTLineDraw(line, context);
-    CGContextRestoreGState(context);
+    if (value.empty())
+        return {};
+    CTLineRef line = createLine(value, font, text);
+    const CGRect ink = CTLineGetBoundsWithOptions(line, kCTLineBoundsUseGlyphPathBounds);
     CFRelease(line);
-}
-
-std::vector<std::string> wrapLines(const std::string& value, const Font& font, float width)
-{
-    std::vector<std::string> lines;
-    std::string current;
-    std::size_t index = 0;
-    while (index <= value.size())
-    {
-        const auto space = value.find_first_of(" \n", index);
-        const auto end = space == std::string::npos ? value.size() : space;
-        const auto word = value.substr(index, end - index);
-        const auto candidate = current.empty() ? word : current + " " + word;
-        if (!current.empty() && stringWidth(font, candidate) > width)
-        {
-            lines.push_back(current);
-            current = word;
-        }
-        else
-            current = candidate;
-        if (space != std::string::npos && value[space] == '\n')
-        {
-            lines.push_back(current);
-            current.clear();
-        }
-        if (space == std::string::npos)
-            break;
-        index = space + 1;
-    }
-    if (!current.empty())
-        lines.push_back(current);
-    return lines;
-}
-
-namespace
-{
-std::string ellipsise(const std::string& value, const Font& font, float width)
-{
-    if (stringWidth(font, value) <= width)
-        return value;
-    std::string cut = value;
-    while (!cut.empty())
-    {
-        do
-            cut.pop_back();
-        while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80);
-        if (stringWidth(font, cut + "...") <= width)
-            return cut + "...";
-    }
-    return {};
-}
-} // namespace
-
-void drawFitted(CGContextRef context, const std::string& value, CGRect box, const Font& font,
-                Colour colour, unsigned justification, int maximumLines, float minimumHorizontalScale)
-{
-    if (value.empty() || colour.isTransparent())
-        return;
-    const float width = static_cast<float>(box.size.width);
-    const float lineHeight = font.height;
-    const float minScale = minimumHorizontalScale <= 0.0f ? 0.7f : minimumHorizontalScale;
-
-    struct Line
-    {
-        std::string text;
-        float scale = 1.0f;
-    };
-    std::vector<Line> lines;
-    const float full = stringWidth(font, value);
-    if (full <= width)
-        lines.push_back({ value, 1.0f });
-    else if (maximumLines <= 1 || full * minScale <= width)
-    {
-        if (full * minScale <= width)
-            lines.push_back({ value, width / full });
-        else
-            lines.push_back({ ellipsise(value, font, width / minScale), minScale });
-    }
-    else
-    {
-        auto wrapped = wrapLines(value, font, width);
-        if (static_cast<int>(wrapped.size()) > maximumLines)
-        {
-            std::string rest;
-            for (std::size_t index = static_cast<std::size_t>(maximumLines - 1); index < wrapped.size(); ++index)
-                rest += (rest.empty() ? "" : " ") + wrapped[index];
-            wrapped.resize(static_cast<std::size_t>(maximumLines - 1));
-            wrapped.push_back(rest);
-        }
-        for (auto& line : wrapped)
-        {
-            const float lineWidth = stringWidth(font, line);
-            if (lineWidth <= width)
-                lines.push_back({ line, 1.0f });
-            else if (lineWidth * minScale <= width)
-                lines.push_back({ line, width / lineWidth });
-            else
-                lines.push_back({ ellipsise(line, font, width / minScale), minScale });
-        }
-    }
-
-    const float blockHeight = lineHeight * static_cast<float>(lines.size());
-    float y = static_cast<float>(box.origin.y);
-    if (justification & verticallyCentred)
-        y += (static_cast<float>(box.size.height) - blockHeight) * 0.5f;
-    else if (justification & bottom)
-        y += static_cast<float>(box.size.height) - blockHeight;
-    const float asc = ascent(font);
-    for (const auto& line : lines)
-    {
-        const float lineWidth = stringWidth(font, line.text) * line.scale;
-        float x = static_cast<float>(box.origin.x);
-        if (justification & horizontallyCentred)
-            x += (width - lineWidth) * 0.5f;
-        else if (justification & right)
-            x += width - lineWidth;
-        drawLine(context, line.text, font, colour, x, y + asc, line.scale);
-        y += lineHeight;
-    }
-}
-
-float drawWrapped(CGContextRef context, const std::string& value, float x, float topEdge, float width,
-                  const Font& font, Colour colour, float lineHeight)
-{
-    const auto lines = wrapLines(value, font, width);
-    float y = topEdge;
-    for (const auto& line : lines)
-    {
-        drawLine(context, line, font, colour, x, y + ascent(font));
-        y += lineHeight;
-    }
-    return y - topEdge;
+    if (CGRectIsEmpty(ink))
+        return {};
+    return fromCG(ink);
 }
 
 // ------------------------------------------------------------- shapes
@@ -399,29 +219,31 @@ namespace
 {
 void setFill(CGContextRef context, Colour colour)
 {
-    CGColorRef cg = colour.createCG();
+    CGColorRef cg = createCGColor(colour);
     CGContextSetFillColorWithColor(context, cg);
     CGColorRelease(cg);
 }
 
 void setStroke(CGContextRef context, Colour colour)
 {
-    CGColorRef cg = colour.createCG();
+    CGColorRef cg = createCGColor(colour);
     CGContextSetStrokeColorWithColor(context, cg);
     CGColorRelease(cg);
 }
 } // namespace
 
-void fillRect(CGContextRef context, CGRect rect, Colour colour)
+void CGCanvas::fillRect(Rect area, Colour colour)
 {
     if (colour.isTransparent())
         return;
-    setFill(context, colour);
-    CGContextFillRect(context, rect);
+    setFill(context_, colour);
+    CGContextFillRect(context_, toCG(area));
 }
 
-void fillRoundedRect(CGContextRef context, CGRect rect, float radius, Colour colour)
+void CGCanvas::fillRoundedRect(Rect area, float radius, Colour colour)
 {
+    CGContextRef context = context_;
+    const CGRect rect = toCG(area);
     if (colour.isTransparent() || rect.size.width <= 0 || rect.size.height <= 0)
         return;
     radius = std::min({ radius, static_cast<float>(rect.size.width) * 0.5f, static_cast<float>(rect.size.height) * 0.5f });
@@ -432,8 +254,10 @@ void fillRoundedRect(CGContextRef context, CGRect rect, float radius, Colour col
     CGPathRelease(path);
 }
 
-void strokeRoundedRect(CGContextRef context, CGRect rect, float radius, float lineWidth, Colour colour)
+void CGCanvas::strokeRoundedRect(Rect area, float radius, float lineWidth, Colour colour)
 {
+    CGContextRef context = context_;
+    const CGRect rect = toCG(area);
     if (colour.isTransparent() || rect.size.width <= 0 || rect.size.height <= 0)
         return;
     radius = std::min({ radius, static_cast<float>(rect.size.width) * 0.5f, static_cast<float>(rect.size.height) * 0.5f });
@@ -445,16 +269,20 @@ void strokeRoundedRect(CGContextRef context, CGRect rect, float radius, float li
     CGPathRelease(path);
 }
 
-void fillEllipse(CGContextRef context, CGRect rect, Colour colour)
+void CGCanvas::fillEllipse(Rect area, Colour colour)
 {
+    CGContextRef context = context_;
+    const CGRect rect = toCG(area);
     if (colour.isTransparent())
         return;
     setFill(context, colour);
     CGContextFillEllipseInRect(context, rect);
 }
 
-void strokeEllipse(CGContextRef context, CGRect rect, float lineWidth, Colour colour)
+void CGCanvas::strokeEllipse(Rect area, float lineWidth, Colour colour)
 {
+    CGContextRef context = context_;
+    const CGRect rect = toCG(area);
     if (colour.isTransparent())
         return;
     setStroke(context, colour);
@@ -462,6 +290,8 @@ void strokeEllipse(CGContextRef context, CGRect rect, float lineWidth, Colour co
     CGContextStrokeEllipseInRect(context, rect);
 }
 
+namespace
+{
 CGPathRef createBottomRoundedPath(CGRect rect, float radius)
 {
     CGMutablePathRef path = CGPathCreateMutable();
@@ -478,9 +308,14 @@ CGPathRef createBottomRoundedPath(CGRect rect, float radius)
     return path;
 }
 
-void fillPathVerticalGradient(CGContextRef context, CGPathRef path, CGRect rect, Colour topColour, Colour bottomColour)
+} // namespace
+
+void CGCanvas::fillBottomRoundedGradient(Rect area, float radius, Colour topColour, Colour bottomColour)
 {
-    CGColorRef colours[] = { topColour.createCG(), bottomColour.createCG() };
+    CGContextRef context = context_;
+    const CGRect rect = toCG(area);
+    CGPathRef path = createBottomRoundedPath(rect, radius);
+    CGColorRef colours[] = { createCGColor(topColour), createCGColor(bottomColour) };
     CFArrayRef array = CFArrayCreate(nullptr, (const void**) colours, 2, &kCFTypeArrayCallBacks);
     static CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     CGGradientRef gradient = CGGradientCreateWithColors(space, array, nullptr);
@@ -494,12 +329,18 @@ void fillPathVerticalGradient(CGContextRef context, CGPathRef path, CGRect rect,
     CFRelease(array);
     CGColorRelease(colours[0]);
     CGColorRelease(colours[1]);
+    CGPathRelease(path);
 }
 
-void strokePolyline(CGContextRef context, const std::vector<CGPoint>& points, float lineWidth, Colour colour)
+void CGCanvas::strokePolyline(const std::vector<Point>& vertices, float lineWidth, Colour colour)
 {
-    if (points.size() < 2)
+    CGContextRef context = context_;
+    if (vertices.size() < 2)
         return;
+    std::vector<CGPoint> points;
+    points.reserve(vertices.size());
+    for (const auto& vertex : vertices)
+        points.push_back(toCG(vertex));
     setStroke(context, colour);
     CGContextSetLineWidth(context, lineWidth);
     CGContextSetLineCap(context, kCGLineCapRound);
@@ -508,6 +349,8 @@ void strokePolyline(CGContextRef context, const std::vector<CGPoint>& points, fl
     CGContextStrokePath(context);
 }
 
+namespace
+{
 CGImageRef musicProdMark(Colour tone)
 {
     static std::map<std::uint32_t, CGImageRef> cache;
@@ -555,5 +398,78 @@ CGImageRef musicProdMark(Colour tone)
     }
     cache.emplace(tone.argb, result);
     return result;
+}
+} // namespace
+
+float musicProdMarkAspect()
+{
+    CGImageRef mark = musicProdMark(muted);
+    if (mark == nullptr || CGImageGetHeight(mark) == 0)
+        return 0.0f;
+    return static_cast<float>(CGImageGetWidth(mark)) / static_cast<float>(CGImageGetHeight(mark));
+}
+
+void CGCanvas::drawMusicProdMark(Rect area, Colour tone, float opacity)
+{
+    CGImageRef mark = musicProdMark(tone);
+    if (mark == nullptr)
+        return;
+    const CGRect target = toCG(area);
+    CGContextSaveGState(context_);
+    CGContextSetAlpha(context_, opacity);
+    CGContextTranslateCTM(context_, target.origin.x, CGRectGetMaxY(target));
+    CGContextScaleCTM(context_, 1.0, -1.0);
+    CGContextSetInterpolationQuality(context_, kCGInterpolationHigh);
+    CGContextDrawImage(context_, CGRectMake(0, 0, target.size.width, target.size.height), mark);
+    CGContextRestoreGState(context_);
+}
+
+void CGCanvas::drawText(const std::string& value, const Font& font, Colour colour, float x, float baseline,
+                        float horizontalScale)
+{
+    if (value.empty() || colour.isTransparent())
+        return;
+    CTLineRef line = createLine(value, font, colour);
+    CGContextSaveGState(context_);
+    CGContextTranslateCTM(context_, x, baseline);
+    CGContextScaleCTM(context_, horizontalScale, -1.0);
+    CGContextSetTextMatrix(context_, CGAffineTransformIdentity);
+    CGContextSetTextPosition(context_, 0, 0);
+    CTLineDraw(line, context_);
+    CGContextRestoreGState(context_);
+    CFRelease(line);
+}
+
+void CGCanvas::save()
+{
+    CGContextSaveGState(context_);
+}
+
+void CGCanvas::restore()
+{
+    CGContextRestoreGState(context_);
+}
+
+void CGCanvas::translate(float dx, float dy)
+{
+    CGContextTranslateCTM(context_, dx, dy);
+}
+
+void CGCanvas::clipTo(Rect rect)
+{
+    CGContextClipToRect(context_, toCG(rect));
+}
+
+void CGCanvas::beginLayer(float opacity)
+{
+    CGContextSaveGState(context_);
+    CGContextSetAlpha(context_, opacity);
+    CGContextBeginTransparencyLayer(context_, nullptr);
+}
+
+void CGCanvas::endLayer()
+{
+    CGContextEndTransparencyLayer(context_);
+    CGContextRestoreGState(context_);
 }
 } // namespace chordengine::ui::style

@@ -191,8 +191,19 @@ else()
 endif()
 
 # --- the editor ---------------------------------------------------------------------------------
+# The platform-neutral core (controls, layout, logic, text fitting) and one
+# back end per platform: AppKit + Core Graphics on macOS, a child HWND with
+# Direct2D + DirectWrite on Windows.
+set(CHORDENGINE_EDITOR_COMMON_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorStyle.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorWidgets.cpp)
 if(APPLE)
-    file(GLOB CHORDENGINE_EDITOR_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/*.mm)
+    set(CHORDENGINE_EDITOR_SOURCES ${CHORDENGINE_EDITOR_COMMON_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorStyleApple.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorView.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorWidgetsApple.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/TakeDrag.mm)
     set(CHORDENGINE_EDITOR_FRAMEWORKS "-framework Cocoa" "-framework CoreText" "-framework QuartzCore"
         "-framework UniformTypeIdentifiers")
     set(CHORDENGINE_RESOURCE_FILES
@@ -228,7 +239,7 @@ if(APPLE)
             XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
         target_compile_definitions(${target} PRIVATE CHORDENGINE_OBJC_SUFFIX=${objc_suffix}
                                                      ${CHORDENGINE_VERSION_DEFINITIONS})
-        target_compile_options(${target} PRIVATE -fobjc-arc ${CHORDENGINE_WARNINGS})
+        target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc> ${CHORDENGINE_WARNINGS})
         # The configured plist is copied over the generated one, the classic
         # bundle marker (PkgInfo, type BNDL) is added - Finder shows a bundle
         # without it as a plain folder - then the resources.
