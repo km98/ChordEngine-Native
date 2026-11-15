@@ -1,6 +1,11 @@
 #pragma once
 
+#include <filesystem>
+#include <memory>
 #include <string>
+
+#include "Packs/PackStoreClient.h"
+#include "Updates/UpdateTransport.h"
 
 class ChordEngineAudioProcessor;
 
@@ -29,6 +34,18 @@ inline constexpr int editorMinimumWidth = 640;
 inline constexpr int editorMinimumHeight = 520;
 inline constexpr int editorMaximumWidth = 1280;
 inline constexpr int editorMaximumHeight = 1040;
+
+// The editor's preferred size for a given width (keeps the design aspect).
+void editorSizeForWidth(int width, int& outWidth, int& outHeight);
+
+// Optional seams (development tools and tests): where takes, packs and the
+// update cache live, and the network transports. Empty = production.
+struct EditorOptions
+{
+    std::filesystem::path storageDirectory;
+    std::unique_ptr<chordengine::updates::UpdateTransport> updateTransport;
+    std::unique_ptr<chordengine::packs::PackStoreTransport> packTransport;
+};
 } // namespace chordengine::ui
 
 #ifdef __OBJC__
@@ -41,31 +58,16 @@ namespace chordengine::ui
 NSView* createEditorView(EditorHost& host, int width, int height);
 void detachEditorView(NSView* view);
 void detachAllEditorViews(EditorHost* host);
-// The editor's preferred size for a given width (keeps the design aspect).
-void editorSizeForWidth(int width, int& outWidth, int& outHeight);
 } // namespace chordengine::ui
 #endif
 
 #ifdef __OBJC__
-#include <filesystem>
-#include <memory>
 #include <vector>
 
 #import <CoreGraphics/CoreGraphics.h>
 
-#include "Packs/PackStoreClient.h"
-#include "Updates/UpdateTransport.h"
-
 namespace chordengine::ui
 {
-// Optional seams (development tools and tests): where takes, packs and the
-// update cache live, and the network transports. Empty = production.
-struct EditorOptions
-{
-    std::filesystem::path storageDirectory;
-    std::unique_ptr<chordengine::updates::UpdateTransport> updateTransport;
-    std::unique_ptr<chordengine::packs::PackStoreTransport> packTransport;
-};
 NSView* createEditorViewWithOptions(EditorHost& host, int width, int height, EditorOptions options);
 
 // ---- programmatic access (tests, snapshot tool) ---------------------------

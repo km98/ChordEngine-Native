@@ -191,19 +191,37 @@ else()
 endif()
 
 # --- the editor ---------------------------------------------------------------------------------
+# The platform-neutral core (controls, layout, logic, text fitting) and one
+# back end per platform: AppKit + Core Graphics on macOS, a child HWND with
+# Direct2D + DirectWrite on Windows.
+set(CHORDENGINE_EDITOR_COMMON_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorStyle.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorWidgets.cpp)
 if(APPLE)
-    file(GLOB CHORDENGINE_EDITOR_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/*.mm)
+    set(CHORDENGINE_EDITOR_SOURCES ${CHORDENGINE_EDITOR_COMMON_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorStyleApple.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorView.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorWidgetsApple.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/TakeDrag.mm)
     set(CHORDENGINE_EDITOR_FRAMEWORKS "-framework Cocoa" "-framework CoreText" "-framework QuartzCore"
         "-framework UniformTypeIdentifiers")
-    set(CHORDENGINE_RESOURCE_FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/MusicProdLogo.png
-        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/Inter-Regular.ttf
-        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/Inter-SemiBold.ttf
-        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/SchibstedGrotesk-SemiBold.ttf
-        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/Inter-OFL.txt
-        ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/SchibstedGrotesk-OFL.txt
-        ${CMAKE_CURRENT_SOURCE_DIR}/Docs/THIRD_PARTY_NOTICES.txt)
+elseif(WIN32)
+    set(CHORDENGINE_EDITOR_SOURCES ${CHORDENGINE_EDITOR_COMMON_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorStyleWin.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/EditorWin.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI/TakeDragWin.cpp)
+    # Windows system libraries only (Direct2D, DirectWrite, WIC, common controls).
+    set(CHORDENGINE_EDITOR_FRAMEWORKS d2d1 dwrite windowscodecs comctl32 ole32 shell32 user32 gdi32 uuid)
 endif()
+set(CHORDENGINE_RESOURCE_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/MusicProdLogo.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/Inter-Regular.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/Inter-SemiBold.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/SchibstedGrotesk-SemiBold.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/Inter-OFL.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Fonts/SchibstedGrotesk-OFL.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/Docs/THIRD_PARTY_NOTICES.txt)
 
 # =============================================================================
 # The plug-in bundles
@@ -228,7 +246,7 @@ if(APPLE)
             XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
         target_compile_definitions(${target} PRIVATE CHORDENGINE_OBJC_SUFFIX=${objc_suffix}
                                                      ${CHORDENGINE_VERSION_DEFINITIONS})
-        target_compile_options(${target} PRIVATE -fobjc-arc ${CHORDENGINE_WARNINGS})
+        target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc> ${CHORDENGINE_WARNINGS})
         # The configured plist is copied over the generated one, the classic
         # bundle marker (PkgInfo, type BNDL) is added - Finder shows a bundle
         # without it as a plain folder - then the resources.
@@ -299,24 +317,26 @@ if(APPLE)
 
     add_custom_target(ChordEnginePlugins DEPENDS ChordEngineAU ChordEngineInstrumentAU ChordEngineVST3)
 elseif(WIN32)
-    # Windows: the VST3 (processor, state, MIDI, licensing). The editor view is
-    # planned for a later step (Docs/NATIVE_REBUILD.md, "Windows").
-    add_library(ChordEngineVST3 MODULE Source/VST3/ChordEngineVST3.mm ${CHORDENGINE_PLATFORM_WIN})
+    # Windows: the VST3 with its editor (a child HWND drawn with Direct2D /
+    # DirectWrite; Docs/NATIVE_REBUILD.md, "Windows editor").
+    add_library(ChordEngineVST3 MODULE Source/VST3/ChordEngineVST3.mm ${CHORDENGINE_PLATFORM_WIN}
+                                       ${CHORDENGINE_EDITOR_SOURCES})
     set_source_files_properties(Source/VST3/ChordEngineVST3.mm PROPERTIES LANGUAGE CXX)
     target_compile_options(ChordEngineVST3 PRIVATE /TP)
     target_compile_definitions(ChordEngineVST3 PRIVATE CHORDENGINE_AUDIO_OUTPUT=1 ${CHORDENGINE_VERSION_DEFINITIONS})
-    target_link_libraries(ChordEngineVST3 PRIVATE ChordEngineProcessor ChordEngineVST3SDK)
+    target_link_libraries(ChordEngineVST3 PRIVATE ChordEngineProcessor ChordEngineVST3SDK ${CHORDENGINE_EDITOR_FRAMEWORKS})
     # The VST3 bundle layout: ChordEngine.vst3/Contents/x86_64-win/ChordEngine.vst3
     set(CE_WIN_BUNDLE ${CHORDENGINE_BUNDLE_DIR}/ChordEngine.vst3)
     set_target_properties(ChordEngineVST3 PROPERTIES OUTPUT_NAME ChordEngine SUFFIX .vst3
         LIBRARY_OUTPUT_DIRECTORY $<1:${CE_WIN_BUNDLE}/Contents/x86_64-win>)
     configure_file(Resources/Bundle/moduleinfo.json.in ${CMAKE_BINARY_DIR}/Plists/moduleinfo.json @ONLY)
+    # Contents/Resources: moduleinfo.json, the notices, and the editor's fonts
+    # and artwork (loaded privately from here; nothing is installed system-wide).
     add_custom_command(TARGET ChordEngineVST3 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CE_WIN_BUNDLE}/Contents/Resources
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/Plists/moduleinfo.json
                 ${CE_WIN_BUNDLE}/Contents/Resources/moduleinfo.json
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Docs/THIRD_PARTY_NOTICES.txt
-                ${CE_WIN_BUNDLE}/Contents/Resources/THIRD_PARTY_NOTICES.txt
+        COMMAND ${CMAKE_COMMAND} -E copy ${CHORDENGINE_RESOURCE_FILES} ${CE_WIN_BUNDLE}/Contents/Resources/
         VERBATIM)
 endif()
 

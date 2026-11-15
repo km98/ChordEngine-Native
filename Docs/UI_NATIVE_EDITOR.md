@@ -1,4 +1,4 @@
-# The AppKit editor (JUCE-free build)
+# The native editor (JUCE-free build)
 
 The 0.5.0 redesign (`Docs/UI_REDESIGN_0.5.0.md`) rebuilt on plain AppKit. The
 0.5.1 editor (JUCE) was the reference: its layout numbers, palette, type
@@ -9,11 +9,16 @@ scale, drawing rules, wording and behaviour were ported one to one.
 | File | Contents |
 |---|---|
 | `Source/UI/EditorHost.h` | The adapter interface (`EditorHost`), sizes, `createEditorView` / detach, and the programmatic access used by tests and the snapshot tool (`createEditorViewWithOptions`, `clickEditorControl`, `selectEditorItem`, ...) |
-| `Source/UI/EditorStyle.h/.mm` | Palette, faces (bundled Inter / Schibsted Grotesk loaded process-privately with `CTFontManagerCreateFontDescriptorsFromURL`; system Baskerville and Snell Roundhand Bold as in 0.5), text drawing with 0.5's metric rules, shapes, the re-tinted Music-Prod mark |
-| `Source/UI/EditorWidgets.h/.mm` | One AppKit view class (`CEWidgetView`) forwarding drawing and mouse events to small C++ widgets: label (plain / info row / note tokens), pill button, step button, take row, selector (NSMenu popup), slider, N/A chip, wordmark, piano, pack list |
-| `Source/UI/EditorView.mm` | The root view and `EditorController`: pages (CHORD / PACKS / INFO), the expiry gate, layout in the 800 x 650 design space, the 20 Hz refresh, licensing / updates / packs wiring, preset menu, take files |
+| `Source/UI/EditorStyle.h/.cpp` | Platform-neutral: geometry (`Rect`, `Point`), palette, faces, the `Canvas` drawing interface, and the text-fitting rules of 0.5 (fit / squeeze / wrap / ellipsise) over the back end's metrics |
+| `Source/UI/EditorWidgets.h/.cpp` | Platform-neutral widgets drawn through a `Canvas`: label (plain / info row / note tokens), pill button, step button, take row, selector, slider, N/A chip, wordmark, piano, pack list. Each gets a `WidgetPeer` from the back end |
+| `Source/UI/EditorController.h/.cpp` | Platform-neutral `EditorController`: pages (CHORD / PACKS / INFO), the expiry gate, layout in the 800 x 650 design space, the 20 Hz refresh, licensing / updates / packs wiring, preset menu, take files, licence key field, resize grip, and the programmatic access used by the tests. Reaches the window system only through `EditorRoot` |
+| `Source/UI/EditorStyleApple.h/.mm` | macOS back end of `EditorStyle`: bundled Inter / Schibsted Grotesk loaded process-privately with `CTFontManagerCreateFontDescriptorsFromURL`, system Baskerville and Snell Roundhand Bold as in 0.5, Core Text metrics, `CGCanvas`, the re-tinted Music-Prod mark |
+| `Source/UI/EditorWidgetsApple.h/.mm` | One AppKit view class (`CEWidgetView`) per widget forwarding drawing (through `CGCanvas`), mouse events, tooltips, cursor rects and NSMenu pop-ups |
+| `Source/UI/EditorView.mm` | The AppKit root view, `AppleEditorRoot` (widget views, the licence key's NSTextField, the pack list's NSScrollView) and the NSView-based API in `EditorHost.h` |
+| `Source/UI/EditorWin.h/.cpp`, `EditorStyleWin.h/.cpp`, `TakeDragWin.cpp` | Windows back end: a child HWND drawn with Direct2D (`D2DCanvas`), DirectWrite faces (the bundled fonts as private collections), the licence key as a native EDIT control, Win32 pop-up menus, tooltips, an overlay-scrolled pack list, DPI scale, OLE drag of takes, offscreen PNG renders (see `Docs/NATIVE_REBUILD.md`, "Windows editor") |
 | `Source/UI/TakeDrag.h/.mm` | OS drag of a take file (copy, generic, link and move offered, as FL Studio needs; outcome appended to `Takes/drag-log.txt`) |
 | `Tools/EditorSnapshot.mm` | Offscreen renders of the 17 states / sizes the 0.5.1 tool rendered, plus before / after comparisons and a difference metric |
+| `Tests/EditorWinTests.cpp`, `Tests/VST3EditorSmokeWin.cpp` | Windows: the controller and window driven through real window messages (plus `--snapshots <dir>` PNG renders, uploaded by CI); a host's view of the built VST3 editor (create / attach / resize / content scale / remove) |
 | `Tests/EditorTests.mm`, `Tests/EditorTests.cmake` | Control-by-control tests (target `ChordEngineEditorTests`) and the snapshot target |
 
 All Objective-C classes carry the per-binary suffix (`CE_OBJC`), so the AU and

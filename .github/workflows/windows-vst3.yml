@@ -26,7 +26,25 @@ jobs:
         run: cmake --build Build/Windows --config Release
 
       - name: Run CTest
+        env:
+          # The VST3 editor smoke test saves what the hosted window shows here.
+          CHORDENGINE_SMOKE_CAPTURE_DIR: ${{ runner.temp }}\editor-snapshots
         run: ctest --test-dir Build/Windows -C Release --output-on-failure
+
+      - name: Render the Windows editor (PNG snapshots of the main states)
+        if: always()
+        shell: pwsh
+        run: |
+          & "$PWD\Build\Windows\Tests\Release\ChordEngineEditorWinTests.exe" --snapshots "$env:RUNNER_TEMP\editor-snapshots"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Archive the editor snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChordEngine-Windows-editor-snapshots
+          path: ${{ runner.temp }}/editor-snapshots
+          if-no-files-found: ignore
 
       - name: Archive the VST3 bundle (only when all tests pass)
         if: success()

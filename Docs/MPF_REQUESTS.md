@@ -49,9 +49,10 @@ reference implementation.
 
 9. **A platform-neutral widget/paint layer** with AppKit and Win32/Direct2D
    back ends, uniform scaling from a design space, private font loading,
-   offscreen PNG snapshots, keyboard focus and navigation. ChordEngine's
-   editor is AppKit-only today (`Source/UI/`); its Windows editor plan is in
-   `Docs/NATIVE_REBUILD.md`.
+   offscreen PNG snapshots, keyboard focus and navigation. ChordEngine now has
+   one (`Source/UI/`: `EditorController` / `Canvas` with AppKit and Direct2D
+   back ends; `Docs/NATIVE_REBUILD.md`, "Windows editor"), a candidate to move
+   into the framework.
 10. **MIDI file drag-out** from the editor into the DAW on both platforms
     (`NSFilePromiseProvider` / OLE `DoDragDrop` with `CF_HDROP`).
 

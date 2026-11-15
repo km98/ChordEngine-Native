@@ -57,7 +57,7 @@ windows_bundle() {
     [ -f "$dll" ] || { fail "$name: no x86_64-win binary"; return; }
     [ -n "${DUMPBIN:-}" ] || { fail "$name: DUMPBIN is not set"; return; }
     imports=$("$DUMPBIN" -nologo -imports "$dll" | tr -d '\r' | awk '/^ +[A-Za-z0-9_.-]+\.dll$/{print $1}' | sort -u)
-    bad=$(echo "$imports" | grep -viE '^(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|winhttp|bcrypt|shlwapi|vcruntime140(_1)?|msvcp140(_[0-9a-z]+)?|api-ms-win-[a-z0-9-]+)\.dll$')
+    bad=$(echo "$imports" | grep -viE '^(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|winhttp|bcrypt|shlwapi|d2d1|dwrite|windowscodecs|comctl32|vcruntime140(_1)?|msvcp140(_[0-9a-z]+)?|api-ms-win-[a-z0-9-]+)\.dll$')
     [ -n "$imports" ] && [ -z "$bad" ] && pass "$name [x64]: imports Windows/MSVC runtime DLLs only ($(echo $imports | tr ' ' ','))" \
                                       || fail "$name [x64]: unexpected imports: $bad"
     exports=$("$DUMPBIN" -nologo -exports "$dll" | tr -d '\r' | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9A-F]+$/ && $3 ~ /^[0-9A-F]+$/ && NF >= 4 {print $4}' | sort | tr '\n' ' ')

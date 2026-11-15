@@ -23,6 +23,13 @@
 #define CHORDENGINE_VST3_EXPORT __attribute__((visibility("default")))
 #else
 #define CHORDENGINE_VST3_EXPORT __declspec(dllexport)
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+ #endif
+ #include <windows.h>
 #endif
 
 #include "pluginterfaces/base/ibstream.h"
@@ -45,12 +52,17 @@
 #include "Platform/Platform.h"
 #include "PluginProcessor.h"
 #include "UI/EditorHost.h"
+#ifdef _WIN32
+ #include "UI/EditorWin.h"
+ #include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <string>
 
 // Defined in the SDK's main/ sources, which this plug-in does not compile.
@@ -58,6 +70,9 @@ namespace Steinberg
 {
 DEF_CLASS_IID(IPlugView)
 DEF_CLASS_IID(IPlugFrame)
+#ifdef _WIN32
+DEF_CLASS_IID(IPlugViewContentScaleSupport)
+#endif
 } // namespace Steinberg
 
 using namespace Steinberg;
@@ -121,6 +136,9 @@ void stripPrivateDataTrailer(std::string& s)
 class ChordEngineVST3;
 
 class ChordEngineVST3View : public CPluginView
+#ifdef _WIN32
+    , public IPlugViewContentScaleSupport
+#endif
 {
 public:
     explicit ChordEngineVST3View(ChordEngineVST3& owner);
@@ -130,21 +148,25 @@ public:
     {
 #ifdef __APPLE__
         return std::strcmp(type, kPlatformTypeNSView) == 0 ? kResultTrue : kResultFalse;
+#elif defined(_WIN32)
+        return std::strcmp(type, kPlatformTypeHWND) == 0 ? kResultTrue : kResultFalse;
 #else
-        return kResultFalse; // the Windows editor is planned (Docs/NATIVE_REBUILD.md)
+        return kResultFalse;
 #endif
     }
     tresult PLUGIN_API attached(void* parent, FIDString type) override;
     tresult PLUGIN_API removed() override;
     tresult PLUGIN_API canResize() override { return kResultTrue; }
+    // Sizes are in the host's units: points on macOS, pixels on Windows
+    // (scale_ pixels per point there).
     tresult PLUGIN_API checkSizeConstraint(ViewRect* rect) override
     {
         if (rect == nullptr)
             return kInvalidArgument;
         int width = 0, height = 0;
-        constrain(rect->getWidth(), width, height);
-        rect->right = rect->left + width;
-        rect->bottom = rect->top + height;
+        constrain(static_cast<int>(std::lround(rect->getWidth() / scale_)), width, height);
+        rect->right = rect->left + static_cast<int32>(std::lround(width * scale_));
+        rect->bottom = rect->top + static_cast<int32>(std::lround(height * scale_));
         return kResultTrue;
     }
     tresult PLUGIN_API onSize(ViewRect* rect) override
@@ -156,12 +178,16 @@ public:
 #ifdef __APPLE__
         if (view_ != nil)
             [view_ setFrame:NSMakeRect(0, 0, fitted.getWidth(), fitted.getHeight())];
+#elif defined(_WIN32)
+        if (editor_ != nullptr)
+            chordengine::ui::setWinEditorPixelSize(editor_, fitted.getWidth(), fitted.getHeight());
 #endif
         return CPluginView::onSize(&fitted);
     }
+    // `width` x `height` in points (the editor's own size request).
     bool resizeTo(int width, int height)
     {
-        ViewRect rect(0, 0, width, height);
+        ViewRect rect(0, 0, static_cast<int32>(std::lround(width * scale_)), static_cast<int32>(std::lround(height * scale_)));
         checkSizeConstraint(&rect);
         return plugFrame != nullptr && plugFrame->resizeView(this, &rect) == kResultTrue;
     }
@@ -173,10 +199,56 @@ public:
                                               / chordengine::ui::editorDesignWidth));
     }
 
+#ifdef _WIN32
+    // ---- IPlugViewContentScaleSupport (the host's DPI scale) -------------------------
+    tresult PLUGIN_API setContentScaleFactor(ScaleFactor factor) override
+    {
+        if (!(factor > 0.0f) || factor > 8.0f)
+            return kResultFalse;
+        hostScale_ = true;
+        applyScale(factor, true);
+        return kResultTrue;
+    }
+
+    tresult PLUGIN_API queryInterface(const TUID iid, void** object) override
+    {
+        QUERY_INTERFACE(iid, object, IPlugViewContentScaleSupport::iid, IPlugViewContentScaleSupport)
+        return CPluginView::queryInterface(iid, object);
+    }
+    uint32 PLUGIN_API addRef() override { return CPluginView::addRef(); }
+    uint32 PLUGIN_API release() override { return CPluginView::release(); }
+
+    // A new pixels-per-point factor: the editor follows, the window keeps its
+    // size in points (the host is asked to resize it when attached).
+    void applyScale(float factor, bool askHost)
+    {
+        if (std::abs(factor - scale_) < 0.001f)
+            return;
+        const double logicalWidth = getRect().getWidth() / scale_;
+        scale_ = factor;
+        int width = 0, height = 0;
+        constrain(static_cast<int>(std::lround(logicalWidth)), width, height);
+        ViewRect rect(0, 0, static_cast<int32>(std::lround(width * scale_)), static_cast<int32>(std::lround(height * scale_)));
+        if (editor_ != nullptr)
+            chordengine::ui::setWinEditorScale(editor_, scale_);
+        if (askHost && plugFrame != nullptr && isAttached())
+        {
+            if (plugFrame->resizeView(this, &rect) != kResultTrue)
+                setRect(rect);
+        }
+        else
+            setRect(rect);
+    }
+#endif
+
 private:
     ChordEngineVST3& owner_;
+    float scale_ = 1.0f;
 #ifdef __APPLE__
     NSView* view_ = nil;
+#elif defined(_WIN32)
+    chordengine::ui::WinEditor* editor_ = nullptr;
+    bool hostScale_ = false;
 #endif
 };
 
@@ -470,6 +542,16 @@ public:
             return "FL Studio";
         if ([name containsString:@"Live"])
             return "Ableton Live";
+#elif defined(_WIN32)
+        wchar_t path[MAX_PATH * 2] {};
+        if (GetModuleFileNameW(nullptr, path, MAX_PATH * 2) != 0)
+        {
+            const std::wstring name = std::filesystem::path(path).filename().wstring();
+            if (name == L"FL64.exe" || name == L"FL.exe" || name.rfind(L"FL Studio", 0) == 0)
+                return "FL Studio";
+            if (name.rfind(L"Ableton Live", 0) == 0)
+                return "Ableton Live";
+        }
 #endif
         return {};
     }
@@ -492,6 +574,8 @@ private:
     {
 #ifdef __APPLE__
         chordengine::ui::detachAllEditorViews(this);
+#elif defined(_WIN32)
+        chordengine::ui::detachAllWinEditors(this);
 #endif
         if (handler_ != nullptr)
             handler_->release();
@@ -648,7 +732,13 @@ private:
 ChordEngineVST3View::ChordEngineVST3View(ChordEngineVST3& owner) : CPluginView(nullptr), owner_(owner)
 {
     owner_.addRef();
-    ViewRect rect(0, 0, chordengine::ui::editorDesignWidth, chordengine::ui::editorDesignHeight);
+#ifdef _WIN32
+    // Until the host says otherwise (setContentScaleFactor) or the parent
+    // window is known: the system DPI as this thread sees it.
+    scale_ = chordengine::ui::windowScaleFactor(nullptr);
+#endif
+    ViewRect rect(0, 0, static_cast<int32>(std::lround(chordengine::ui::editorDesignWidth * scale_)),
+                  static_cast<int32>(std::lround(chordengine::ui::editorDesignHeight * scale_)));
     setRect(rect);
 }
 
@@ -669,6 +759,41 @@ tresult PLUGIN_API ChordEngineVST3View::attached(void* parent, FIDString type)
         view_ = chordengine::ui::createEditorView(owner_, getRect().getWidth(), getRect().getHeight());
         [(__bridge NSView*) parent addSubview:view_];
     }
+#elif defined(_WIN32)
+    bool resizeHost = false;
+    if (!hostScale_)
+    {
+        // The parent's monitor may differ from the system DPI.
+        const float windowScale = chordengine::ui::windowScaleFactor(parent);
+        resizeHost = std::abs(windowScale - scale_) >= 0.001f;
+        applyScale(windowScale, false);
+    }
+    editor_ = chordengine::ui::createWinEditor(owner_, parent, getRect().getWidth(), getRect().getHeight(), scale_);
+    if (editor_ == nullptr)
+    {
+        owner_.activeView_ = nullptr;
+        return kResultFalse;
+    }
+    chordengine::ui::setWinEditorScaleListener(editor_, [this](float factor)
+    {
+        if (!hostScale_)
+            applyScale(factor, true);
+    });
+    if (resizeHost)
+    {
+        // Asked after attached() returns: hosts size their frame from getSize()
+        // before attaching and may not expect a resize from inside attached().
+        addRef();
+        chordengine::platform::callOnMainThread([this]
+        {
+            if (isAttached() && plugFrame != nullptr)
+            {
+                ViewRect rect = getRect();
+                plugFrame->resizeView(this, &rect);
+            }
+            release();
+        });
+    }
 #endif
     return CPluginView::attached(parent, type);
 }
@@ -683,6 +808,12 @@ tresult PLUGIN_API ChordEngineVST3View::removed()
         chordengine::ui::detachEditorView(view_);
         [view_ removeFromSuperview];
         view_ = nil;
+    }
+#elif defined(_WIN32)
+    if (editor_ != nullptr)
+    {
+        chordengine::ui::destroyWinEditor(editor_);
+        editor_ = nullptr;
     }
 #endif
     return CPluginView::removed();
