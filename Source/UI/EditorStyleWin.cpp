@@ -296,12 +296,12 @@ const LayoutEntry* textLayout(const Font& font, const std::string& value)
     DWRITE_OVERHANG_METRICS overhang {};
     if (SUCCEEDED(entry.layout->GetOverhangMetrics(&overhang)))
     {
-        // The layout box is 100000 wide: ink right = metrics.width + overhang.right
-        // measured from the box's left edge.
+        // Overhangs are measured from the layout box's edges (its maximum
+        // width and height), positive outwards.
         const float inkLeft = -overhang.left;
-        const float inkRight = metrics.width + overhang.right;
+        const float inkRight = entry.layout->GetMaxWidth() + overhang.right;
         const float inkTop = -overhang.top;
-        const float inkBottom = metrics.height + overhang.bottom;
+        const float inkBottom = entry.layout->GetMaxHeight() + overhang.bottom;
         // Core Text's convention: y up from the baseline, origin bottom-left.
         entry.ink = Rect(inkLeft, entry.baseline - inkBottom, inkRight - inkLeft, inkBottom - inkTop);
     }

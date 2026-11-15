@@ -243,6 +243,11 @@ int main(int argc, char** argv)
     check(st::stringWidth(st::uiFont(12.0f, true, 0.1f), "CHORD") > st::stringWidth(st::uiFont(12.0f, true), "CHORD"),
           "tracking widens text");
     check(st::musicProdMarkAspect() > 1.0f, "the Music-Prod mark is found");
+    {
+        const auto ink = st::inkBounds({ st::Face::wordmark, 27.0f, 0.0f }, "Chord Engine");
+        check(ink.width > 60.0f && ink.width < 300.0f && ink.height > 10.0f && ink.height < 60.0f,
+              "the wordmark's ink is measured (" + std::to_string(ink.width) + " x " + std::to_string(ink.height) + ")");
+    }
 
     // ---- the MIDI FX build ---------------------------------------------------------
     {
@@ -358,7 +363,8 @@ int main(int argc, char** argv)
         check(controller.isControlVisible("sign-in") && controller.controlText("sign-in") == "SIGN IN",
               "signed out: SIGN IN offered");
         HWND field = keyField(editor);
-        check(field != nullptr && IsWindowVisible(field), "the licence key field is a visible native EDIT control");
+        check(field != nullptr && (GetWindowLongPtrW(field, GWL_STYLE) & WS_VISIBLE) != 0,
+              "the licence key field is a visible native EDIT control");
         clickAt(editor, { controller.controlBounds("license-key-editor").x + 2.0f, centreOf(controller, "license-key-editor").y });
         check(GetFocus() == field, "a click on the key box focuses the field");
         for (const wchar_t c : std::wstring(L"PC-7QF2-3MHD-NX4T-9BKR"))
@@ -371,7 +377,8 @@ int main(int argc, char** argv)
         check(controller.controlText("info-trial-status").find("remaining") != std::string::npos,
               "the trial line is the boundary's");
         clickAt(editor, centreOf(controller, "packs-button"));
-        check(controller.isControlVisible("packs-title") && !IsWindowVisible(field), "PACKS (clicked); the key field hides");
+        check(controller.isControlVisible("packs-title") && (GetWindowLongPtrW(field, GWL_STYLE) & WS_VISIBLE) == 0,
+              "PACKS (clicked); the key field hides");
         clickAt(editor, centreOf(controller, "chord-button"));
         check(controller.isControlVisible("piano-display"), "CHORD (clicked)");
 

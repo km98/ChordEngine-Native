@@ -96,6 +96,9 @@ public:
     void detach();
     void setScaleListener(std::function<void(float)> listener) { scaleListener_ = std::move(listener); }
     void paintTree(st::Canvas& canvas, Size size);
+    // What the native text fields show (offscreen renders only: on screen
+    // the EDIT controls draw themselves).
+    void paintFieldContents(st::Canvas& canvas);
     void invalidate();
 
     // ---- EditorRoot -------------------------------------------------------------
@@ -286,6 +289,13 @@ public:
     }
 
     bool hasFocus() const override { return edit() != nullptr && GetFocus() == edit(); }
+    bool isShown() const noexcept { return visible_; }
+    float fontHeight() const noexcept { return height_; }
+    Rect frameInEditor() const
+    {
+        const Point origin = editor_.originOf(owner_);
+        return { origin.x + area_.x + indent_, origin.y + area_.y, area_.width - indent_ * 2.0f, area_.height };
+    }
     void focus() override
     {
         if (HWND control = edit())
@@ -599,6 +609,20 @@ void WinEditor::paintTree(st::Canvas& canvas, Size size)
                                    st::white.withAlpha(0.22f));
         }
         canvas.restore();
+    }
+}
+
+void WinEditor::paintFieldContents(st::Canvas& canvas)
+{
+    for (auto* field : fields_)
+    {
+        if (!field->isShown() || !field->owner().isVisible())
+            continue;
+        const auto text = field->text();
+        const st::Font font { st::Face::mono, field->fontHeight(), 0.06f };
+        const Rect frame = field->frameInEditor();
+        st::drawFitted(canvas, text.empty() ? std::string("PC-XXXX-XXXX-XXXX-XXXX") : text, frame, font,
+                       text.empty() ? st::faint.brighter(0.2f) : st::textBright, st::centredLeft, 1, 1.0f);
     }
 }
 
@@ -1053,6 +1077,7 @@ bool renderWinEditor(WinEditor* editor, float scale, std::vector<std::uint8_t>& 
     {
         st::D2DCanvas canvas(*target.Get(), resources);
         editor->paintTree(canvas, size);
+        editor->paintFieldContents(canvas);
     }
     const HRESULT drawn = target->EndDraw();
     resources.reset();
