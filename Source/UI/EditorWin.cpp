@@ -95,11 +95,14 @@ public:
     void setPixelSize(int width, int height);
     void detach();
     void setScaleListener(std::function<void(float)> listener) { scaleListener_ = std::move(listener); }
-    void paintTree(st::Canvas& canvas, Size size);
+    // `dirty`: the editor area being repainted (widgets outside it are skipped).
+    void paintTree(st::Canvas& canvas, Size size, Rect dirty);
     // What the native text fields show (offscreen renders only: on screen
     // the EDIT controls draw themselves).
     void paintFieldContents(st::Canvas& canvas);
     void invalidate();
+    void invalidate(Rect editorArea);
+    void invalidateWidget(const Widget& widget);
 
     // ---- EditorRoot -------------------------------------------------------------
     void addWidget(Widget& widget) override;
@@ -170,7 +173,7 @@ public:
     void boundsChanged() override { editor_.invalidate(); }
     void visibilityChanged() override { editor_.invalidate(); }
     void tooltipChanged() override { editor_.tooltipChanged(widget_); }
-    void repaint() override { editor_.invalidate(); }
+    void repaint() override { editor_.invalidateWidget(widget_); }
     int showMenu(const std::vector<MenuEntry>& entries, Point at, float) override
     {
         return editor_.showMenu(widget_, entries, at);
@@ -454,6 +457,25 @@ void WinEditor::invalidate()
         InvalidateRect(window_, nullptr, FALSE);
 }
 
+void WinEditor::invalidate(Rect area)
+{
+    if (window_ == nullptr || area.isEmpty())
+        return;
+    // Two pixels of margin cover antialiased edges and strokes on the bounds.
+    RECT rect { static_cast<LONG>(std::floor(area.x * scale_)) - 2, static_cast<LONG>(std::floor(area.y * scale_)) - 2,
+                static_cast<LONG>(std::ceil(area.maxX() * scale_)) + 2,
+                static_cast<LONG>(std::ceil(area.maxY() * scale_)) + 2 };
+    InvalidateRect(window_, &rect, FALSE);
+}
+
+void WinEditor::invalidateWidget(const Widget& widget)
+{
+    for (const auto& item : items_)
+        if (item.scroll != nullptr && &item.scroll->content() == &widget)
+            return invalidate(item.scroll->frame());
+    invalidate(widget.bounds());
+}
+
 void WinEditor::setScale(float scale)
 {
     if (scale <= 0.0f || std::abs(scale - scale_) < 0.001f)
@@ -563,7 +585,15 @@ Point WinEditor::originOf(const Widget& widget) const
 }
 
 // ---------------------------------------------------------------- painting
-void WinEditor::paintTree(st::Canvas& canvas, Size size)
+namespace
+{
+bool intersects(Rect a, Rect b)
+{
+    return a.x < b.maxX() && b.x < a.maxX() && a.y < b.maxY() && b.y < a.maxY();
+}
+} // namespace
+
+void WinEditor::paintTree(st::Canvas& canvas, Size size, Rect dirty)
 {
     if (controller_ == nullptr)
         return;
@@ -583,12 +613,13 @@ void WinEditor::paintTree(st::Canvas& canvas, Size size)
     {
         if (item.widget != nullptr)
         {
-            if (item.widget->isVisible() && !item.widget->bounds().isEmpty())
+            if (item.widget->isVisible() && !item.widget->bounds().isEmpty()
+                && intersects(item.widget->bounds().inset(-2.0f, -2.0f), dirty))
                 paintWidget(*item.widget);
             continue;
         }
         auto& area = *item.scroll;
-        if (!area.isVisible() || area.frame().isEmpty())
+        if (!area.isVisible() || area.frame().isEmpty() || !intersects(area.frame(), dirty))
             continue;
         const Rect frame = area.frame();
         canvas.save();
@@ -641,7 +672,9 @@ void WinEditor::onPaint()
                                                                                D2D1_ALPHA_MODE_IGNORE),
                                                              96.0f * scale_, 96.0f * scale_);
         st::d2dFactory()->CreateHwndRenderTarget(properties,
-                                                 D2D1::HwndRenderTargetProperties(window_, D2D1::SizeU(pixelWidth, pixelHeight)),
+                                                 // Kept between frames: a paint redraws only the invalid area.
+                                                 D2D1::HwndRenderTargetProperties(window_, D2D1::SizeU(pixelWidth, pixelHeight),
+                                                                                  D2D1_PRESENT_OPTIONS_RETAIN_CONTENTS),
                                                  &target_);
     }
     if (target_ != nullptr)
@@ -651,14 +684,20 @@ void WinEditor::onPaint()
             target_->Resize(D2D1::SizeU(pixelWidth, pixelHeight));
         target_->BeginDraw();
         target_->SetTransform(D2D1::Matrix3x2F::Identity());
-        target_->Clear(D2D1::ColorF(st::background.r() / 255.0f, st::background.g() / 255.0f,
-                                    st::background.b() / 255.0f));
         {
             st::D2DCanvas canvas(*target_.Get(), resources_);
-            paintTree(canvas, size());
+            const Rect dirty(static_cast<float>(paint.rcPaint.left) / scale_, static_cast<float>(paint.rcPaint.top) / scale_,
+                             static_cast<float>(paint.rcPaint.right - paint.rcPaint.left) / scale_,
+                             static_cast<float>(paint.rcPaint.bottom - paint.rcPaint.top) / scale_);
+            canvas.clipTo(dirty);
+            canvas.fillRect(dirty, st::background);
+            paintTree(canvas, size(), dirty);
         }
         if (target_->EndDraw() == D2DERR_RECREATE_TARGET)
+        {
             releaseTarget();
+            invalidate(); // the next target starts empty
+        }
     }
     EndPaint(window_, &paint);
 }
@@ -1076,7 +1115,7 @@ bool renderWinEditor(WinEditor* editor, float scale, std::vector<std::uint8_t>& 
     target->Clear(D2D1::ColorF(st::background.r() / 255.0f, st::background.g() / 255.0f, st::background.b() / 255.0f));
     {
         st::D2DCanvas canvas(*target.Get(), resources);
-        editor->paintTree(canvas, size);
+        editor->paintTree(canvas, size, Rect(0.0f, 0.0f, size.width, size.height));
         editor->paintFieldContents(canvas);
     }
     const HRESULT drawn = target->EndDraw();
